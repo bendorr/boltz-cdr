@@ -1,6 +1,6 @@
 # boltz-cdr
 
-**Concentrating structural sampling where an antibody-structure model is actually uncertain.**
+**Concentrating structural sampling where antibody-structure models are most uncertain.**
 
 Tools for generating and ranking antibody–antigen interface ensembles with
 [Boltz-2](https://github.com/jwohlwend/boltz): CDR-selective diffusion resampling,
@@ -9,19 +9,31 @@ GPU-free evaluation suite for scoring the results.
 
 ---
 
-## Why
+## Background
 
-AF3-class models predict antibody–antigen complexes far worse than they predict protein
-complexes generally — roughly 30–40 % DockQ-acceptable against ~80 %. The reason is
-structural. An antibody and its antigen share no evolutionary history, so the paired MSA
-carries no coevolutionary contact signal; and the antibody's own MSA is dominated by
-germline framework, which dilutes the hypervariable CDR3 that determines specificity. The
-model's uncertainty is concentrated in the CDR loops.
+AF3-class models predict antibody–antigen complexes considerably less accurately than
+protein complexes in general: approximately 30–40 % of predictions reach DockQ-acceptable
+quality, compared with roughly 80 % across protein–protein complexes more broadly. A
+plausible explanation is that the features these models depend on most are weakest for
+this class of interface. An antibody and its antigen have no shared evolutionary history,
+so the paired MSA carries little coevolutionary contact signal, and the antibody's own MSA
+is dominated by germline framework sequence, which places little constraint on the
+hypervariable CDR3 loop that largely determines specificity.
 
-Its sampler, however, spreads stochasticity uniformly over the whole complex, so drawing
-more seeds mostly re-derives the parts that were already right. This package spends the
-sampling budget on the loops instead, and then asks the question that matters just as much
-in practice: given an ensemble, which scoring function picks the right member?
+Error in a predicted complex has two distinguishable components: the rigid-body placement
+of the binder on its target, and the conformation of the CDR loops within that placement.
+Both contribute, and which one limits accuracy will vary by system. This package addresses
+the second. It takes the placement from a conventional prediction run and reallocates the
+remaining sampling budget to the loops, rather than distributing stochasticity uniformly
+over the complex as the unmodified sampler does. The evaluation module is built to keep
+the two separable: ligand RMSD reports placement, and per-CDR RMSD after framework
+superposition reports loop conformation, so a run in which placement is the limiting
+factor is visible as such rather than being absorbed into a single number.
+
+A second question is given equal weight. An ensemble containing an accurate model is of
+limited use without a way to identify which member that is, so the package compares
+model-derived confidence scores against structure-derived interface metrics for their
+ability to select it.
 
 ---
 
@@ -80,10 +92,11 @@ in practice: given an ensemble, which scoring function picks the right member?
  ╚════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
-Stage 0 finds *where* the binder sits. Arms A and B spend the remaining budget on *how the
-CDR loops sit in that pocket* — Arm A by removing the loops from the model's input, Arm B
-by reshaping the diffusion trajectory. Stage 3 asks which score picks the winner; Stage 4
-checks everything against a crystal structure.
+Stage 0 establishes the rigid-body placement and provides the baseline against which the
+two arms are measured. Arms A and B resample the CDR loops within that placement: Arm A by
+withholding them from the model's input, Arm B by modifying the diffusion trajectory.
+Stage 3 compares selection scores, and Stage 4 evaluates all arms against the crystal
+structure.
 
 Boltz-2 is never modified on disk. Two attributes are rebound at runtime by
 `boltz_cdr.patch`, reversibly, and the installer refuses to run against a Boltz version
@@ -248,8 +261,9 @@ buried SASA, hydrogen bonds and their density, salt bridges, clashes, and buried
 unsatisfied polar atoms.
 
 **Rankability** — Spearman correlation with DockQ, top-1 selected DockQ, and enrichment
-against oracle and random selection, for every scorer. Best-of-N is not actionable on its
-own; what matters is whether a score can find the good member.
+against oracle and random selection, for every scorer. Best-of-N accuracy is not directly
+actionable, since the reference structure is unavailable at selection time; the relevant
+quantity is the accuracy of the model that a given score selects.
 
 Calibration against the benchmark crystal structures: `evaluate(native, native)` returns
 DockQ 1.0000 with all RMSDs at 0.000; shape complementarity comes out at 0.66–0.70 against

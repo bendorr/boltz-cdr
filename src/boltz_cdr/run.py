@@ -1,11 +1,10 @@
 """Driving Boltz-2 and collecting its output.
 
-Arm B has a requirement the other arms do not: the monkey-patch has to be live in the same
-Python process that runs the model. Shelling out to the `boltz` CLI would start a fresh
-interpreter and silently drop the patch, producing a run that looks like Arm B and is
-actually the baseline — the worst kind of failure, because it is invisible in the results.
-So predictions are invoked **in-process** through the click command object, and
-`run_prediction` verifies the patch state before it starts.
+Arm B requires the runtime patch to be live in the same Python process as the model.
+Shelling out to the `boltz` CLI would start a fresh interpreter and drop the patch,
+producing a run labeled Arm B that is in fact the baseline, with nothing in the output to
+indicate the substitution. Predictions are therefore invoked in-process through the click
+command object, and `run_prediction` verifies the patch state before starting.
 """
 
 from __future__ import annotations

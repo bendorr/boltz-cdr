@@ -69,9 +69,9 @@ def build_cdr_masked_template(
     annotation
         CDR spans indexing `cx.antibody`.
     mask_cdrs
-        Which loops to delete. Masking only `("cdr3",)` is a useful ablation: CDR3
-        contributes most of the paratope, so it isolates how much of any gain comes from
-        the loop that actually matters.
+        Which loops to delete. Masking only `("cdr3",)` is a useful ablation, since CDR3
+        contributes the majority of paratope contacts and this isolates its contribution
+        from that of CDR1 and CDR2.
     flank
         Additionally delete this many residues either side of each masked loop. The
         residues immediately flanking a CDR are its anchors, and leaving them templated
