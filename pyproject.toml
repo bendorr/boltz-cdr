@@ -1,0 +1,30 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "scripts", "tests"]
+# Notebook style is not library style: cells legitimately re-import to survive
+# out-of-order execution and group imports on one line.
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF", "C4", "PL"]
+ignore = [
+    "E501",     # long lines: docstrings in this project carry scientific rationale
+    "RUF002",   # ambiguous unicode: we write Å, µ, and em dashes deliberately
+    "RUF003",
+    "PLR0913",  # many arguments: the run scripts are configuration-heavy by nature
+    "PLR0917",
+    "PLC0415",  # imports inside functions are load-bearing here: they are what keeps
+                # the package importable, testable, and runnable without boltz installed
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["PLR2004"]       # magic numbers in assertions are the point
+"scripts/*" = ["T201", "PLR0915"]   # scripts print, and drivers are long by nature
+# sampler.py is a line-for-line copy of boltz 2.2.1's AtomDiffusion.sample with the CDR
+# hooks fenced inline. Its style is upstream's and must stay that way, or the diff against
+# upstream stops being reviewable — which is the entire justification for vendoring it.
+"src/boltz_cdr/sampler.py" = ["B905", "SIM108", "C408", "PLR0915", "PLR0912", "PLW2901", "C901", "N806"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["boltz_cdr"]

@@ -1,0 +1,117 @@
+# Benchmark targets — nanobody/VHH–antigen complexes.
+#
+# Selection criteria:
+#   * antigen is a small, globular, fully-resolved domain (60–130 aa)
+#   * no chain breaks in either chain (CDR loops fully ordered => usable ground truth)
+#   * substantial interface (>250 inter-chain atom pairs < 4.5 A)
+#   * long CDR3 (>= 16 aa) — the hard, hypervariable case the method targets
+#   * high resolution (< 1.9 A)
+#   * RELEASED AFTER BOLTZ-2's PDB TRAINING CUTOFF (assumed 2023-06-01) so that
+#     results are not confounded by memorization
+#   * diverse antigen folds and therapeutic areas
+#
+# ---------------------------------------------------------------------------------
+# Defining CDRs
+#
+# By default the CDRs are found automatically by the IMGT annotator in
+# `src/boltz_cdr/cdr.py`. To define them yourself for a target, add a `cdr_residues`
+# block giving the antibody chain and AUTHOR residue numbers — the numbers you see in
+# PyMOL or on the RCSB page, not 0-based indices:
+#
+#   cdr_residues:
+#     chain: E
+#     cdr1: "28-35"           # a range
+#     cdr2: [53, 54, 55, 56]  # or an explicit list
+#     cdr3: "99-117"          # discontinuous loops use '+': "99-110+114-117"
+#
+# Any subset of cdr1/cdr2/cdr3 may be given; omitted loops are simply empty. Every
+# residue number is validated against the structure, so a typo is a loud error rather
+# than a silent mis-selection — which matters, because author numbering is arbitrary
+# (8QF4's antibody starts at 2, 9EZU's at 0, 9HUR's antigen at 108).
+#
+# The same thing can be done on the command line for a whole run, which takes precedence
+# over anything here:
+#
+#   python scripts/03_arm_b_diffusion_resample.py --target 8QF4 \
+#       --cdr-residues "E:28-35,53-60,99-117"
+#
+# `cdr_spans` is the older, lower-level form taking 0-based indices into the resolved
+# sequence. It still works and is used if `cdr_residues` is absent, but prefer
+# `cdr_residues` — indices are easy to get wrong by one and impossible to eyeball.
+#
+# Precedence: --cdr-residues  >  cdr_residues  >  cdr_spans  >  automatic annotation
+# ---------------------------------------------------------------------------------
+
+version: 1
+
+targets:
+  - id: 8QF4
+    name: "Nb H11 : Arc N-lobe"
+    released: '2024-03-13'
+    resolution: 1.02
+    antibody_chain: E
+    antigen_chain: A
+    antibody_desc: Nanobody H11 (Vicugna pacos)
+    antigen_desc: Activity-regulated cytoskeleton-associated protein, N-lobe (Homo sapiens)
+    antigen_fold: all-alpha helical bundle (retroviral Gag-like)
+    n_antigen_res: 67
+    interface_atom_pairs: 423
+    cdr_spans: null
+    # Uncomment to define the CDRs by hand instead of using the annotator. These exact
+    # numbers reproduce the automatic annotation for 8QF4, so they are a safe starting
+    # point to edit from (the demo script prints them: scripts/05_backward_pass_demo.py).
+    # cdr_residues:
+    #   chain: E
+    #   cdr1: "28-35"
+    #   cdr2: "53-60"
+    #   cdr3: "99-117"
+    notes: >-
+      Highest-resolution and largest-interface target in the set. 19-residue CDR3.
+      Arc is a neuronal capsid-forming protein; the N-lobe is a compact helical domain.
+
+  - id: 9EZU
+    name: "VHH_h1 : VSIG4"
+    released: '2025-10-29'
+    resolution: 1.05
+    antibody_chain: B
+    antigen_chain: A
+    antibody_desc: single-domain antibody VHH_h1 (Camelidae)
+    antigen_desc: V-set and immunoglobulin domain-containing protein 4, IgV domain (Homo sapiens)
+    antigen_fold: immunoglobulin beta-sandwich (V-set)
+    n_antigen_res: 118
+    interface_atom_pairs: 293
+    cdr_spans: null
+    notes: >-
+      VSIG4 is a macrophage complement receptor and immuno-oncology checkpoint target.
+      Beta-sandwich antigen — a different fold class from 8QF4. 18-residue CDR3.
+
+  - id: 9HUR
+    name: "Sybody LA4 : CD63 LEL"
+    released: '2025-11-19'
+    resolution: 1.65
+    antibody_chain: B
+    antigen_chain: A
+    antibody_desc: sybody LA4 (synthetic construct)
+    antigen_desc: CD63 antigen, large extracellular loop (Homo sapiens)
+    antigen_fold: all-alpha tetraspanin extracellular loop
+    n_antigen_res: 102
+    interface_atom_pairs: 321
+    cdr_spans: null
+    notes: >-
+      Synthetic nanobody (sybody) rather than an immunized camelid VHH — a useful
+      robustness check on the CDR annotator, which must not assume a camelid framework.
+      CD63 is an exosome/tetraspanin marker. 18-residue CDR3.
+
+# Optional positive control: released 2005, deep inside every model's training set.
+# Useful as a "what does the model score look like when it has memorized the answer"
+# reference, NOT as a benchmark point.
+controls:
+  - id: 1ZVH
+    name: "cAb-Lys3-like VHH : hen egg lysozyme"
+    released: '2005-06-14'
+    resolution: 1.50
+    antibody_chain: A
+    antigen_chain: L
+    antigen_desc: Lysozyme C (Gallus gallus)
+    cdr_spans: null
+    notes: Memorization control — pre-training-cutoff.

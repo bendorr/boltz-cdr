@@ -1,0 +1,13 @@
+# Laptop / CPU dependencies. Everything except Boltz-2 inference runs from these:
+# CDR annotation, template construction, the guidance potential and its gradient,
+# all evaluation metrics, the scorer comparison, and the full test suite.
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+pyyaml>=6.0
+gemmi>=0.6            # mmCIF/PDB I/O
+biopython>=1.81       # pairwise alignment for IMGT numbering transfer and correspondence
+torch>=2.0            # the potential and its autograd backward pass (CPU is fine)
+matplotlib>=3.7
+tqdm>=4.65
+pytest>=7.4

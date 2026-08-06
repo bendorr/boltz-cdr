@@ -1,0 +1,9 @@
+# Colab / GPU dependencies. Adds Boltz-2 on top of the CPU set.
+#
+# The Boltz version is PINNED: src/boltz_cdr/sampler.py contains a line-for-line copy of
+# this version's AtomDiffusion.sample with the CDR hooks fenced inline, and
+# src/boltz_cdr/patch.py refuses to install against any other version rather than run a
+# stale copy. To upgrade: re-derive the copy from the new source, then bump both here and
+# SUPPORTED_BOLTZ_VERSIONS in patch.py.
+-r requirements.txt
+boltz==2.2.1
