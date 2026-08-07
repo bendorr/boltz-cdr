@@ -180,7 +180,15 @@ python scripts/04_evaluate.py --target 8QF4
 ```
 
 Roughly 25 GPU-minutes per target for all arms on an A100.
-`notebooks/colab_boltz_cdr.ipynb` runs the whole pipeline end to end on Colab.
+`notebooks/colab_boltz_cdr.ipynb` runs the whole pipeline end to end on Colab. Its two
+visualization cells are committed already executed, drawn from the ten NMR models in
+`data/examples/` so the section is not blank here — placeholders, overwritten by your own
+Boltz-2 structures the moment you run the notebook. `EXAMPLE_ENSEMBLE` in that cell is
+False by default and only exists to redraw them:
+
+```bash
+python notebooks/_execute_colab_placeholders.py    # needs no GPU and no Boltz weights
+```
 
 ---
 

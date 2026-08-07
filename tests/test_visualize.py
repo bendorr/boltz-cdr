@@ -280,8 +280,11 @@ def test_ensemble_view_thins_a_large_ensemble(native_complex):
     from boltz_cdr.visualize import ensemble_view
 
     members, annotation = perturbed_ensemble(native_complex, n=10)
-    html = ensemble_view(members, annotation, max_overlay=3).write_html()
-    assert html.count("addModel") == 4
+    view = ensemble_view(members, annotation, max_overlay=3)
+    assert view.write_html().count("addModel") == 4
+    # One color per *drawn* member. The Colab notebook keys its landscape off this list,
+    # so it must be able to tell a thinned overlay from a complete one.
+    assert len(view.colors) == 3
 
 
 def test_ensemble_view_colors_by_value(native_complex):
@@ -457,6 +460,21 @@ def test_member_colors_follows_values(native_complex):
     assert all(c.startswith("#") for c in by_value)
 
 
+def test_landscape_rejects_point_colors_of_the_wrong_length(native_complex):
+    """`max_overlay` thins the overlay, so its colors can be fewer than the structures."""
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.2, 0.9, 6)
+    )
+    with pytest.raises(ValueError, match="max_overlay"):
+        plot_landscape(landscape, projection, point_colors=member_colors(4))
+
+
 def test_landscape_accepts_matching_point_colors(native_complex):
     import matplotlib
     matplotlib.use("Agg")
@@ -470,13 +488,13 @@ def test_landscape_accepts_matching_point_colors(native_complex):
 
     fig, (_ax3d, ax2d) = plot_landscape(landscape, projection, point_colors=view.colors)
     fig.canvas.draw()
-    # Identity is carried by the point outlines; the fill carries the value.
+    # Identity is carried by the point fills; the outlines carry the value.
     import matplotlib.colors as mcolors
-    rings = set()
+    fills = set()
     for collection in ax2d.collections:
-        if hasattr(collection, "get_edgecolor"):
-            rings |= {mcolors.to_hex(c) for c in collection.get_edgecolor()}
-    assert set(view.colors) <= rings
+        if hasattr(collection, "get_facecolor"):
+            fills |= {mcolors.to_hex(c) for c in collection.get_facecolor()}
+    assert set(view.colors) <= fills
     matplotlib.pyplot.close(fig)
 
 
@@ -605,10 +623,30 @@ def test_legend_text_is_readable_on_a_dark_background(native_complex):
     assert "#f0f0f0" in dark_block or "#fff" in dark_block.lower()
 
 
-def test_landscape_points_are_filled_by_value_and_ringed_by_identity(native_complex):
+def test_show_and_hide_all_buttons_keep_black_labels(native_complex):
+    """The buttons are a light chip in both themes, so the label stays black in both."""
+    pytest.importorskip("py3Dmol")
+    import re
+
+    from boltz_cdr.visualize import ensemble_view
+
+    html = ensemble_view(*perturbed_ensemble(native_complex, n=3)).write_html()
+    for label in ("show all", "hide all"):
+        assert f'class="bc-btn"' in html and f">{label}</button>" in html
+
+    style = html.split("<style>")[1].split("</style>")[0]
+    rules = re.findall(r"\.bc-btn\{([^}]*)\}", style)
+    assert rules, "the buttons must be styled"
+    # Every .bc-btn rule, dark-mode override included; `border-color` is not a text color.
+    declared = [c for rule in rules for c in re.findall(r"(?<!-)color:\s*([^;]+)", rule)]
+    assert declared == ["#000"], f"button label must be black everywhere, got {declared}"
+
+
+def test_landscape_points_are_filled_by_identity_and_ringed_by_value(native_complex):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.colors as mcolors
+    import matplotlib.pyplot as plt
 
     from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
 
@@ -620,12 +658,47 @@ def test_landscape_points_are_filled_by_value_and_ringed_by_identity(native_comp
     fig, (ax3d, ax2d) = plot_landscape(landscape, projection, point_colors=colors)
     fig.canvas.draw()
 
-    rings = set()
+    fills, rings = set(), set()
     for collection in ax2d.collections:
         if not hasattr(collection, "get_edgecolor"):
             continue
+        fills |= {mcolors.to_hex(c) for c in collection.get_facecolor()}
         rings |= {mcolors.to_hex(c) for c in collection.get_edgecolor()}
-    assert set(colors) <= rings, "identity colors must appear as point outlines"
+    assert set(colors) <= fills, "identity colors must appear as point fills"
+
+    # The rings must be the value on the *surface's* scale, or a ring could not be read
+    # against the contour beneath it.
+    norm = plt.Normalize(
+        vmin=float(np.nanmin(landscape.grid_z)), vmax=float(np.nanmax(landscape.grid_z))
+    )
+    expected = {
+        mcolors.to_hex(c) for c in plt.get_cmap("viridis")(norm(landscape.z))
+    }
+    assert expected <= rings, "outlines must carry the plotted value"
+    assert not set(colors) & rings, "identity must not also be on the outlines"
 
     assert not ax3d.lines, "the connecting stems should be gone"
+    matplotlib.pyplot.close(fig)
+
+
+def test_landscape_key_names_both_color_channels(native_complex):
+    """The reversed keying is not guessable from the marks, so the figure states it."""
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.2, 0.9, 6)
+    )
+    fig, _ = plot_landscape(
+        landscape, projection, value_label="DockQ", point_colors=member_colors(6)
+    )
+    key = " | ".join(t.get_text() for lg in fig.legends for t in lg.get_texts())
+
+    assert "fill" in key and "ring" in key
+    assert "overlay" in key, "the fill must be tied back to the structural overlay"
+    assert "DockQ" in key, "the ring must name the plotted metric"
+    assert "6 models" in key
     matplotlib.pyplot.close(fig)

@@ -417,15 +417,34 @@ def plot_landscape(
     """A 3D surface with the observations on it, beside a 2D contour of the same fit.
 
     `point_colors` overrides the coloring of the plotted structures — pass
-    `EnsembleView.colors` (or `member_colors(n)`) to give each point the same color its
+    `EnsembleView.colors` (or `member_colors(n)`) to fill each point with the same color its
     loops have in the 3D overlay, so a feature of the landscape can be traced back to a
-    specific conformation. Without it the points are colored by their own value, which
-    reads as a check on the fitted surface instead.
+    specific conformation. Its ring then carries the structure's own value on the surface's
+    color scale, which keeps the check on the fit: a ring that matches the surface under it
+    is a point the smoothing reproduces. Without it the points are filled by value instead.
     """
     import matplotlib.pyplot as plt
 
     if cmap is None:
         cmap = "viridis"
+
+    # Ring colors are normalized over the fitted grid, not over the observations, so a ring
+    # and the surface beneath it are the same color when they hold the same value.
+    value_edges = None
+    if point_colors is not None:
+        if len(point_colors) != len(landscape.z):
+            msg = (
+                f"point_colors has {len(point_colors)} entries for {len(landscape.z)} "
+                f"structures. `ensemble_view(max_overlay=N)` thins the overlay and returns "
+                f"one color per drawn member, so raise max_overlay (or drop it) to key the "
+                f"two figures together."
+            )
+            raise ValueError(msg)
+        norm = plt.Normalize(
+            vmin=float(np.nanmin(landscape.grid_z)),
+            vmax=float(np.nanmax(landscape.grid_z)),
+        )
+        value_edges = plt.get_cmap(cmap)(norm(landscape.z))
 
     fig = plt.figure(figsize=figsize)
 
@@ -438,15 +457,14 @@ def plot_landscape(
     if point_colors is not None:
         ax3d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-            c="none", edgecolor="white", linewidth=2.6, s=66, depthshade=False,
+            c="none", edgecolor="white", linewidth=3.2, s=74, depthshade=False,
         )
     ax3d.scatter(
         landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-        c=landscape.z if point_colors is not None else "black",
-        cmap=cmap if point_colors is not None else None,
-        s=42 if point_colors is not None else 22,
-        edgecolor=point_colors if point_colors is not None else "none",
-        linewidth=1.6 if point_colors is not None else 0,
+        c=point_colors if point_colors is not None else "black",
+        s=48 if point_colors is not None else 22,
+        edgecolor=value_edges if point_colors is not None else "none",
+        linewidth=2.2 if point_colors is not None else 0,
         depthshade=False, label=f"{len(landscape.z)} structures",
     )
 
@@ -455,7 +473,8 @@ def plot_landscape(
     ax3d.set_zlabel(value_label, fontsize=8)
     ax3d.view_init(elev=elev, azim=azim)
     ax3d.tick_params(labelsize=7)
-    ax3d.legend(fontsize=7, loc="upper left")
+    if point_colors is None:
+        ax3d.legend(fontsize=7, loc="upper left")
 
     ax2d = fig.add_subplot(1, 2, 2)
     filled = ax2d.contourf(
@@ -466,19 +485,20 @@ def plot_landscape(
         levels=18, colors="white", linewidths=0.4, alpha=0.5,
     )
     if point_colors is not None:
-        # A white halo outside the identity ring. Without it a point whose value matches
-        # the surface beneath it — which is the common case when the fit is good — has no
-        # visible fill boundary and reads as an empty ring.
+        # A white halo outside the value ring. Without it a ring whose value matches the
+        # surface beneath it — which is the common case when the fit is good — has no
+        # visible outer boundary and the marker reads as a bare fill.
         ax2d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1],
-            c="none", edgecolor="white", linewidth=3.4, s=124, zorder=2,
+            c="none", edgecolor="white", linewidth=3.8, s=138, zorder=2,
         )
     ax2d.scatter(
         landscape.xy[:, 0], landscape.xy[:, 1],
-        c=landscape.z, cmap=cmap,
-        edgecolor=point_colors if point_colors is not None else "black",
-        linewidth=2.0 if point_colors is not None else 0.6,
-        s=95 if point_colors is not None else 60, zorder=3,
+        c=point_colors if point_colors is not None else landscape.z,
+        cmap=None if point_colors is not None else cmap,
+        edgecolor=value_edges if point_colors is not None else "black",
+        linewidth=2.6 if point_colors is not None else 0.6,
+        s=106 if point_colors is not None else 60, zorder=3,
     )
     if labels is not None:
         for (x, y), label in zip(landscape.xy, labels, strict=True):
@@ -495,8 +515,44 @@ def plot_landscape(
 
     if title:
         fig.suptitle(title, fontsize=12)
-    fig.tight_layout()
+    if point_colors is None:
+        fig.tight_layout()
+    else:
+        _point_key(fig, point_colors, cmap, value_label)
+        fig.tight_layout(rect=(0, 0.065, 1, 1))   # leave the strip the key sits in
     return fig, (ax3d, ax2d)
+
+
+def _point_key(fig, point_colors: list[str], cmap: str, value_label: str) -> None:
+    """A figure-wide key for the two color channels a point carries.
+
+    Which channel means what is not guessable from the marks, and it is the reverse of the
+    usual convention: the fill identifies the structure and the ring reports its value.
+    Each entry samples the scale it names — three points along the overlay spectrum, three
+    rings along the value colormap — so the key looks like the marks it explains.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.legend_handler import HandlerTuple
+    from matplotlib.lines import Line2D
+
+    def dot(face, edge, edge_width):
+        return Line2D([], [], marker="o", linestyle="none", markersize=7.5,
+                      markerfacecolor=face, markeredgecolor=edge,
+                      markeredgewidth=edge_width)
+
+    n = len(point_colors)
+    spectrum = [point_colors[round(t * (n - 1))] for t in (0, 0.5, 1)] if n >= 3 else point_colors
+    fills = tuple(dot(color, "0.45", 0.8) for color in spectrum)
+    rings = tuple(dot("0.90", plt.get_cmap(cmap)(t), 2.2) for t in (0.12, 0.5, 0.88))
+
+    fig.legend(
+        [fills, rings],
+        [f"fill: which model — as in the structural overlay ({n} models)",
+         f"ring: {value_label} — on the surface's own scale"],
+        handler_map={tuple: HandlerTuple(ndivide=None, pad=0.45)},
+        loc="lower center", ncol=2, fontsize=9, handlelength=3.2,
+        handletextpad=0.7, columnspacing=2.5, borderaxespad=0.4, frameon=False,
+    )
 
 
 # ------------------------------------------------------------- structural view
@@ -822,7 +878,7 @@ def _view_with_controls(
   .bc-wrap{{color:#f0f0f0}}
   .bc-opts{{border-bottom-color:#4a4a4a}}
   .bc-val{{color:#b0b0b0}}
-  .bc-btn{{background:#3a3a3a;border-color:#5a5a5a;color:#f0f0f0}}
+  .bc-btn{{background:#ededed;border-color:#8a8a8a}}   /* stays a light chip: the label is black in both themes */
   .bc-swatch{{border-color:#ffffff59}}
 }}
 .bc-opts{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:3px 2px;
@@ -838,7 +894,7 @@ def _view_with_controls(
 .bc-name{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}}
 .bc-val{{color:#888;font-variant-numeric:tabular-nums;margin-left:auto;padding-left:4px}}
 .bc-btn{{font:inherit;padding:0 6px;border:1px solid #ccc;border-radius:3px;
-  background:#fafafa;cursor:pointer;line-height:1.6}}
+  background:#fafafa;color:#000;cursor:pointer;line-height:1.6}}
 </style>
 <div class="bc-wrap">
   <div class="bc-opts">

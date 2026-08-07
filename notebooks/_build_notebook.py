@@ -242,6 +242,11 @@ describe exactly the ensemble the tables above were computed from.
 cells, committed with its outputs, applied to a 20-model NMR ensemble of a nanobody. It is
 worth a look before running this section: it shows what the plots look like when the
 underlying loop diversity is experimentally measured rather than predicted.
+
+**The two figures below are placeholders.** They are committed already executed, so the
+section is not blank in the repository, but they were drawn from ten NMR models that ship
+with the repo (`EXAMPLE_ENSEMBLE` in the next cell) rather than from any prediction. Run
+this notebook and they are replaced by your own Boltz-2 structures.
 """),
 code("""
 import pandas as pd, numpy as np
@@ -249,21 +254,52 @@ from boltz_cdr.pdb_io import load_complex
 from boltz_cdr.yaml_io import ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID
 from _common import load_targets
 
+# Placeholder mode. Leave it False for a real run: the figures below are then drawn from
+# this notebook's own predictions, and the committed placeholders are overwritten. Set it
+# True to redraw those placeholders from the ten committed NMR models, which needs no GPU,
+# no Boltz-2 weights and no results/ directory.
+EXAMPLE_ENSEMBLE = False
+EXAMPLE_PATH = "data/examples/9kfw_10models.pdb.gz"
+
 VIEW_TARGET = DEMO_TARGET
 VIEW_ARMS = None          # e.g. ["armA", "armB_guided"]; None uses every arm
 COLOR_BY = "conf_iptm"    # any column of samples.csv
 
-samples = pd.read_csv("results/analysis/samples.csv")
-selected = samples[samples.target == VIEW_TARGET]
-if VIEW_ARMS:
-    selected = selected[selected.arm.isin(VIEW_ARMS)]
-selected = selected.reset_index(drop=True)
+if EXAMPLE_ENSEMBLE:
+    from boltz_cdr.cdr import annotate_vhh
+    from boltz_cdr.metrics.interface import sasa
+    from boltz_cdr.pdb_io import load_models
 
-target = load_targets(only=[VIEW_TARGET], cdr_residues=CDR_RESIDUES)[0]
-structures = [
-    load_complex(p, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID) for p in selected["path"]
-]
-annotation = target.annotation_for(structures[0].antibody.seq)
+    VIEW_TARGET = "9KFW example ensemble"
+    structures = load_models(EXAMPLE_PATH)
+    annotation = annotate_vhh(structures[0].seq)
+
+    # A deposited ensemble has no confidence and no DockQ, so the quantity plotted is a
+    # conformational property instead: how much CDR surface each model exposes.
+    COLOR_BY = "CDR SASA (A^2)"
+    cdr_atoms = structures[0].atom_mask_for_residues(annotation.all_indices)
+    selected = pd.DataFrame({
+        "arm": "9KFW NMR models",
+        COLOR_BY: [
+            sasa(s.coords, s.atom_elements, n_points=96)[cdr_atoms].sum()
+            for s in structures
+        ],
+    })
+    print(f"PLACEHOLDER: {EXAMPLE_PATH} — set EXAMPLE_ENSEMBLE = False and rerun this "
+          f"notebook to draw your own predictions instead")
+else:
+    samples = pd.read_csv("results/analysis/samples.csv")
+    selected = samples[samples.target == VIEW_TARGET]
+    if VIEW_ARMS:
+        selected = selected[selected.arm.isin(VIEW_ARMS)]
+    selected = selected.reset_index(drop=True)
+
+    target = load_targets(only=[VIEW_TARGET], cdr_residues=CDR_RESIDUES)[0]
+    structures = [
+        load_complex(p, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID) for p in selected["path"]
+    ]
+    annotation = target.annotation_for(structures[0].antibody.seq)
+
 print(f"{len(structures)} structures from arms: {', '.join(sorted(selected.arm.unique()))}")
 print(f"CDRs: {annotation.summary()}")
 """),
@@ -274,7 +310,9 @@ md("""
 Every member's CDR loops, superposed on a shared antibody framework and drawn over a
 single muted copy of the framework and antigen. Because the superposition is on the
 framework, the spread on screen is loop conformation; rigid-body placement has been
-removed. Color runs with `COLOR_BY`.
+removed. Color runs red to purple along an ordering of the members by structural
+similarity, so similarly-shaped loops take similar colors; `COLOR_BY` supplies the number
+shown beside each member in the legend. Pass `color_by="value"` to color by it instead.
 
 Rotate with the mouse. The controls under the viewer toggle side chains, switch
 side-chain coloring between the member's own color and per-element colors (N blue, O red,
@@ -283,6 +321,10 @@ and show or hide individual members from the legend.
 
 Pass `max_overlay=N` to thin a large ensemble, and `align_on="antigen"` to superpose on
 the target instead, which puts rigid-body placement back into the picture.
+
+The viewer is JavaScript, so GitHub's notebook preview — which strips scripts — shows the
+saved output as an empty frame above a dead legend. Colab, Jupyter, VSCode and nbviewer
+all render it; the landscape below is a plain image and shows up anywhere.
 """),
 code("""
 from boltz_cdr.visualize import ensemble_view
@@ -315,11 +357,20 @@ The surface is a kernel average, not an interpolant, so it cannot exceed the ran
 observed values, and it is masked wherever no structure lies close enough to support it.
 The structures themselves are always drawn on top, so the density of evidence behind any
 feature is visible.
+
+Each point carries both readings at once, as the key under the panels says: it is
+**filled** with the color that structure has in the overlay above — so run the cell above
+first, and trace any feature here back to a specific member's loops — and **ringed** with
+its `Z_COLUMN` value on the surface's own scale, so a ring that matches the surface beneath
+it is a point the smoothing reproduces.
 """),
 code("""
+import pathlib
 from boltz_cdr.visualize import conformation_landscape, plot_landscape
 
 Z_COLUMN = "conf_iptm"     # try "dockq", "shape_complementarity", "conf_complex_plddt"
+if EXAMPLE_ENSEMBLE:
+    Z_COLUMN = COLOR_BY    # the example ensemble carries only the one quantity
 
 landscape, projection, coords = conformation_landscape(
     structures,
@@ -332,7 +383,12 @@ fig, _ = plot_landscape(
     projection,
     value_label=Z_COLUMN,
     title=f"{VIEW_TARGET} — CDR conformation landscape ({len(structures)} structures)",
+    # Fill each point with the color its loops have in the overlay above, so a feature here
+    # can be traced to a structure there. Only possible when the overlay drew every
+    # member — raise `max_overlay` if it thinned the ensemble.
+    point_colors=view.colors if len(view.colors) == len(structures) else None,
 )
+pathlib.Path("results/analysis").mkdir(parents=True, exist_ok=True)
 fig.savefig("results/analysis/cdr_landscape.png", dpi=150, bbox_inches="tight")
 
 print(f"PC1+PC2 capture {projection.explained_variance.sum():.0%} of the conformational variance")

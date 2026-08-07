@@ -169,11 +169,12 @@ model confidence or DockQ; an NMR ensemble has neither, so this uses the
 **solvent-accessible surface area of the CDR loops**, a genuine conformational property
 that distinguishes compact paratope conformations from extended ones.
 
-Each point carries both readings at once: it is **filled** with its value on the surface's
-own color scale, and **ringed** in the color that model has in the 3D overlay. The fill
-says how the structure scores, the ring says which structure it is — find a ring color
-here, then isolate that model in the viewer's legend above. A white halo separates the two
-so a point whose value matches the surface beneath it stays visible.
+Each point carries both readings at once: it is **filled** with the color that model has in
+the 3D overlay, and **ringed** with its value on the surface's own color scale. The fill
+says which structure it is — find a fill color here, then isolate that model in the
+viewer's legend above — and the ring says how the structure scores, so a ring that matches
+the surface beneath it is a point the smoothing reproduces. A white halo separates the two
+so a ring whose value matches that surface stays visible.
 
 The surface is a Gaussian kernel average, not an interpolant: it cannot exceed the range
 of the observed values, and it is masked wherever no model lies close enough to support
