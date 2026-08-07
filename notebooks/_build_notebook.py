@@ -236,6 +236,11 @@ md("""
 
 Two views of the same structures, both driven by `results/analysis/samples.csv`, so they
 describe exactly the ensemble the tables above were computed from.
+
+`notebooks/cdr_ensemble_visualization.ipynb` is a standalone CPU-only version of these two
+cells, committed with its outputs, applied to a 20-model NMR ensemble of a nanobody. It is
+worth a look before running this section: it shows what the plots look like when the
+underlying loop diversity is experimentally measured rather than predicted.
 """),
 code("""
 import pandas as pd, numpy as np

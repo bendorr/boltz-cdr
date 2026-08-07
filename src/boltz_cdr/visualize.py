@@ -32,12 +32,26 @@ import numpy as np
 from boltz_cdr.cdr import CDR_NAMES, CDRAnnotation
 from boltz_cdr.metrics.correspondence import (
     BACKBONE,
-    build_correspondence,
+    chain_correspondence,
     matched_atoms,
     subset_correspondence,
 )
 from boltz_cdr.metrics.rmsd import apply_transform, kabsch
-from boltz_cdr.pdb_io import Complex
+from boltz_cdr.pdb_io import Chain, Complex
+
+# An ensemble member is either a full complex or a bare antibody chain. Apo ensembles are
+# a legitimate and common case — NMR depositions of unbound nanobodies, or a set of
+# predictions made before any docking — and nothing in the loop analysis requires an
+# antigen, so both are accepted throughout.
+EnsembleMember = Complex | Chain
+
+
+def _antibody(member: EnsembleMember) -> Chain:
+    return member.antibody if isinstance(member, Complex) else member
+
+
+def _antigen(member: EnsembleMember) -> Chain | None:
+    return member.antigen if isinstance(member, Complex) else None
 
 
 @dataclass
@@ -46,7 +60,7 @@ class EnsembleCoordinates:
 
     features: np.ndarray  # (n_structures, n_atoms * 3) flattened, superposed
     cdr_coords: np.ndarray  # (n_structures, n_atoms, 3)
-    reference: Complex  # the structure everything was superposed onto
+    reference: EnsembleMember  # the structure everything was superposed onto
     residue_indices: np.ndarray  # CDR residue indices in the reference
     atom_names: tuple[str, ...]
     n_dropped: int  # residues excluded for not being present in every member
@@ -57,7 +71,7 @@ class EnsembleCoordinates:
 
 
 def superpose_cdr_ensemble(
-    structures: list[Complex],
+    structures: list[EnsembleMember],
     annotation: CDRAnnotation,
     *,
     cdrs: tuple[str, ...] = CDR_NAMES,
@@ -84,8 +98,12 @@ def superpose_cdr_ensemble(
     if align_on not in {"framework", "antigen"}:
         msg = f"align_on must be 'framework' or 'antigen', got {align_on!r}"
         raise ValueError(msg)
+    if align_on == "antigen" and any(_antigen(m) is None for m in structures):
+        msg = "align_on='antigen' needs every member to carry an antigen chain"
+        raise ValueError(msg)
 
     reference = structures[0]
+    reference_ab = _antibody(reference)
     loop_residues = (
         np.concatenate([annotation[c] for c in cdrs]) if cdrs else annotation.all_indices
     )
@@ -95,10 +113,10 @@ def superpose_cdr_ensemble(
     usable = set(loop_residues.tolist())
     correspondences = []
     for structure in structures:
-        corr = build_correspondence(structure, reference)
-        correspondences.append(corr)
-        present = set(corr.ab_b.tolist())
-        usable &= present
+        this_ab, ref_ab = _antibody(structure), reference_ab
+        ab_this, ab_ref = chain_correspondence(this_ab, ref_ab)
+        correspondences.append((ab_this, ab_ref))
+        usable &= set(ab_ref.tolist())
     common = np.array(sorted(usable), dtype=int)
     n_dropped = len(loop_residues) - len(common)
     if len(common) == 0:
@@ -106,16 +124,18 @@ def superpose_cdr_ensemble(
         raise ValueError(msg)
 
     coords = []
-    for structure, corr in zip(structures, correspondences, strict=True):
+    for structure, (ab_this, ab_ref) in zip(structures, correspondences, strict=True):
+        this_ab = _antibody(structure)
         if align_on == "framework":
-            anchor = np.setdiff1d(corr.ab_b, loop_residues)
-            src, dst = subset_correspondence(corr.ab_b, corr.ab_a, anchor)
-            x_src, x_dst = matched_atoms(
-                reference.antibody, src, structure.antibody, dst, atom_names
-            )
+            anchor = np.setdiff1d(ab_ref, loop_residues)
+            src, dst = subset_correspondence(ab_ref, ab_this, anchor)
+            x_src, x_dst = matched_atoms(reference_ab, src, this_ab, dst, atom_names)
         else:
+            ag_this, ag_ref = chain_correspondence(
+                _antigen(structure), _antigen(reference)
+            )
             x_src, x_dst = matched_atoms(
-                reference.antigen, corr.ag_b, structure.antigen, corr.ag_a, atom_names
+                _antigen(reference), ag_ref, _antigen(structure), ag_this, atom_names
             )
         if len(x_src) < 3:  # noqa: PLR2004
             msg = f"too few {align_on} atoms to superpose ({len(x_src)})"
@@ -124,10 +144,8 @@ def superpose_cdr_ensemble(
         # Transform taking this structure onto the reference frame.
         rot, trans = kabsch(x_dst, x_src)
 
-        loop_ref, loop_this = subset_correspondence(corr.ab_b, corr.ab_a, common)
-        _, x_loop = matched_atoms(
-            reference.antibody, loop_ref, structure.antibody, loop_this, atom_names
-        )
+        loop_ref, loop_this = subset_correspondence(ab_ref, ab_this, common)
+        _, x_loop = matched_atoms(reference_ab, loop_ref, this_ab, loop_this, atom_names)
         coords.append(apply_transform(x_loop, rot, trans))
 
     lengths = {len(c) for c in coords}
@@ -365,7 +383,7 @@ def _default_bandwidth(xy: np.ndarray) -> float:
 
 
 def conformation_landscape(
-    structures: list[Complex],
+    structures: list[EnsembleMember],
     annotation: CDRAnnotation,
     values: np.ndarray,
     *,
@@ -450,18 +468,23 @@ def plot_landscape(
 # ------------------------------------------------------------- structural view
 
 
-def complex_to_pdb(cx: Complex, *, residue_subset=None) -> str:
-    """Serialize a Complex to a PDB string, optionally restricted to antibody residues."""
-    import gemmi
+def complex_to_pdb(cx: EnsembleMember, *, residue_subset=None) -> str:
+    """Serialize a complex or a lone antibody chain to a PDB string.
 
-    from boltz_cdr.pdb_io import write_complex_cif  # noqa: F401  (kept API-adjacent)
+    `residue_subset` restricts the output to those antibody residues and drops the antigen,
+    which is how a single member's loops are added to an overlay.
+    """
+    import gemmi
 
     structure = gemmi.Structure()
     structure.spacegroup_hm = "P 1"
     structure.cell = gemmi.UnitCell(1, 1, 1, 90, 90, 90)
     model = gemmi.Model("1")
 
-    chains = [cx.antibody, cx.antigen] if residue_subset is None else [cx.antibody]
+    antibody, antigen = _antibody(cx), _antigen(cx)
+    chains = [antibody]
+    if residue_subset is None and antigen is not None:
+        chains.append(antigen)
     for chain_i, chain in enumerate(chains):
         gchain = gemmi.Chain(chain.chain_id)
         wanted = (
@@ -490,7 +513,7 @@ def complex_to_pdb(cx: Complex, *, residue_subset=None) -> str:
 
 
 def ensemble_view(
-    structures: list[Complex],
+    structures: list[EnsembleMember],
     annotation: CDRAnnotation,
     *,
     cdrs: tuple[str, ...] = CDR_NAMES,
@@ -503,8 +526,8 @@ def ensemble_view(
 ):
     """A py3Dmol view of the CDR loops of every member, on one shared framework.
 
-    The framework and antigen are drawn once, from the first structure; each member then
-    contributes only its CDR loops. Color runs through a spectrum by member index, or by
+    The framework — and the antigen, when the members carry one — is drawn once from the
+    first structure; each member then contributes only its CDR loops. Color runs through a spectrum by member index, or by
     `values` (confidence, DockQ, anything per-structure) when supplied. The camera is
     zoomed on the loops.
 
@@ -528,20 +551,22 @@ def ensemble_view(
 
     view = py3Dmol.view(width=width, height=height)
 
-    # Context: the whole complex, from the reference member, drawn once and muted.
+    # Context: the reference member in full, drawn once and muted.
     view.addModel(complex_to_pdb(structures[0]), "pdb")
     view.setStyle({"model": 0}, {"cartoon": {"color": "lightgray", "opacity": 0.55}})
-    view.addStyle(
-        {"model": 0, "chain": structures[0].antigen.chain_id},
-        {"cartoon": {"color": "#8fb8d8", "opacity": 0.75}},
-    )
+    context_antigen = _antigen(structures[0])
+    if context_antigen is not None:
+        view.addStyle(
+            {"model": 0, "chain": context_antigen.chain_id},
+            {"cartoon": {"color": "#8fb8d8", "opacity": 0.75}},
+        )
 
     order = list(range(len(structures)))
     if max_overlay is not None and len(order) > max_overlay:
         order = list(np.linspace(0, len(structures) - 1, max_overlay).astype(int))
 
     colors = _value_colors(values, order)
-    reference_ab = structures[0].antibody
+    reference_ab = _antibody(structures[0])
     for slot, index in enumerate(order):
         # Rebuild each member in the reference frame so the overlay is meaningful.
         moved = _in_reference_frame(structures[index], structures[0], annotation, align_on)
@@ -579,25 +604,29 @@ def _value_colors(values, order) -> list[str]:
 
 
 def _in_reference_frame(
-    structure: Complex, reference: Complex, annotation: CDRAnnotation, align_on: str
-) -> Complex:
+    structure: EnsembleMember,
+    reference: EnsembleMember,
+    annotation: CDRAnnotation,
+    align_on: str,
+) -> EnsembleMember:
     """Copy of `structure` rigid-body transformed onto `reference`'s frame."""
     import copy
 
-    corr = build_correspondence(structure, reference)
+    this_ab, ref_ab = _antibody(structure), _antibody(reference)
     if align_on == "framework":
-        anchor = np.setdiff1d(corr.ab_b, annotation.all_indices)
-        src, dst = subset_correspondence(corr.ab_b, corr.ab_a, anchor)
-        x_ref, x_this = matched_atoms(
-            reference.antibody, src, structure.antibody, dst, BACKBONE
-        )
+        ab_this, ab_ref = chain_correspondence(this_ab, ref_ab)
+        anchor = np.setdiff1d(ab_ref, annotation.all_indices)
+        src, dst = subset_correspondence(ab_ref, ab_this, anchor)
+        x_ref, x_this = matched_atoms(ref_ab, src, this_ab, dst, BACKBONE)
     else:
+        ag_this, ag_ref = chain_correspondence(_antigen(structure), _antigen(reference))
         x_ref, x_this = matched_atoms(
-            reference.antigen, corr.ag_b, structure.antigen, corr.ag_a, BACKBONE
+            _antigen(reference), ag_ref, _antigen(structure), ag_this, BACKBONE
         )
     rot, trans = kabsch(x_this, x_ref)
 
     moved = copy.deepcopy(structure)
-    moved.antibody.coords = apply_transform(moved.antibody.coords, rot, trans)
-    moved.antigen.coords = apply_transform(moved.antigen.coords, rot, trans)
+    _antibody(moved).coords = apply_transform(_antibody(moved).coords, rot, trans)
+    if _antigen(moved) is not None:
+        _antigen(moved).coords = apply_transform(_antigen(moved).coords, rot, trans)
     return moved

@@ -50,6 +50,12 @@ def build_correspondence(a: Complex, b: Complex) -> ComplexCorrespondence:
     return ComplexCorrespondence(ab_a, ab_b, ag_a, ag_b, ab_id, ag_id)
 
 
+def chain_correspondence(ca: Chain, cb: Chain) -> tuple[np.ndarray, np.ndarray]:
+    """Matched residue indices between two chains, by sequence alignment."""
+    ia, ib, _ = _chain_pairs(ca, cb)
+    return ia, ib
+
+
 def _chain_pairs(ca: Chain, cb: Chain) -> tuple[np.ndarray, np.ndarray, float]:
     pairs = align_sequences(ca.seq, cb.seq)
     if not pairs:

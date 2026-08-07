@@ -178,6 +178,33 @@ def load_chains(path: str | Path, *, min_res: int = 10) -> dict[str, Chain]:
     return out
 
 
+def load_models(
+    path: str | Path, chain_id: str | None = None, *, min_res: int = 10
+) -> list[Chain]:
+    """Every model of a multi-model file, as a list of `Chain`.
+
+    NMR depositions carry an experimentally-determined conformational ensemble in a single
+    entry — typically 20 models of one molecule — which makes them a source of real loop
+    flexibility for testing and demonstration, with no prediction required.
+
+    `chain_id` selects which chain to take from each model; the longest polymer chain is
+    used when it is omitted.
+    """
+    st = _clean_structure(gemmi.read_structure(str(path)))
+    models: list[Chain] = []
+    for model in st:
+        candidates = [ch for ch in model if len(ch) >= min_res]
+        if chain_id is not None:
+            candidates = [ch for ch in candidates if ch.name == chain_id]
+        if not candidates:
+            continue
+        models.append(_chain_from_gemmi(max(candidates, key=len)))
+    if not models:
+        msg = f"{path}: no polymer chain of >= {min_res} residues found"
+        raise ValueError(msg)
+    return models
+
+
 def load_complex(
     path: str | Path,
     antibody_chain: str,

@@ -147,6 +147,11 @@ python scripts/06_synthetic_ensemble.py --all
 python scripts/04_evaluate.py --all --results results_synthetic
 ```
 
+`notebooks/cdr_ensemble_visualization.ipynb` runs on CPU and is committed with its
+outputs, so the ensemble figures are visible without running anything. It applies the two
+visualizations to a 20-model NMR structure of a nanobody, where the CDR loop diversity is
+experimentally measured rather than predicted.
+
 On a GPU:
 
 ```bash
@@ -238,7 +243,8 @@ boltz-cdr/
 │   └── metrics/           RMSD family, contacts, DockQ, interface physics
 ├── scripts/               00 fetch · 01 dock · 02 Arm A · 03 Arm B · 04 evaluate
 │                          05 gradient demo · 06 synthetic ensemble · 07 CDR selection
-├── notebooks/             end-to-end Colab runner
+├── notebooks/             end-to-end Colab runner, plus a CPU-only visualization demo
+│                          committed with its figures
 └── tests/                 136 tests, all CPU; a stub Boltz exercises the patch,
                            sampler, and runner without model weights
 ```
