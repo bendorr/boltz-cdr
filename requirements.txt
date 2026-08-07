@@ -9,5 +9,6 @@ gemmi>=0.6            # mmCIF/PDB I/O
 biopython>=1.81       # pairwise alignment for IMGT numbering transfer and correspondence
 torch>=2.0            # the potential and its autograd backward pass (CPU is fine)
 matplotlib>=3.7
+py3Dmol>=2.0        # interactive structure view in the notebook; no dependencies of its own
 tqdm>=4.65
 pytest>=7.4

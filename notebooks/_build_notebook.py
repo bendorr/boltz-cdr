@@ -231,7 +231,112 @@ definition that was resampled.
 """),
 code("!python scripts/04_evaluate.py {target_args} {CDR_ARG}"),
 
-md("## 9 · Figures"),
+md("""
+## 9 · Visualizing the ensemble
+
+Two views of the same structures, both driven by `results/analysis/samples.csv`, so they
+describe exactly the ensemble the tables above were computed from.
+"""),
+code("""
+import pandas as pd, numpy as np
+from boltz_cdr.pdb_io import load_complex
+from boltz_cdr.yaml_io import ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID
+from _common import load_targets
+
+VIEW_TARGET = DEMO_TARGET
+VIEW_ARMS = None          # e.g. ["armA", "armB_guided"]; None uses every arm
+COLOR_BY = "conf_iptm"    # any column of samples.csv
+
+samples = pd.read_csv("results/analysis/samples.csv")
+selected = samples[samples.target == VIEW_TARGET]
+if VIEW_ARMS:
+    selected = selected[selected.arm.isin(VIEW_ARMS)]
+selected = selected.reset_index(drop=True)
+
+target = load_targets(only=[VIEW_TARGET], cdr_residues=CDR_RESIDUES)[0]
+structures = [
+    load_complex(p, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID) for p in selected["path"]
+]
+annotation = target.annotation_for(structures[0].antibody.seq)
+print(f"{len(structures)} structures from arms: {', '.join(sorted(selected.arm.unique()))}")
+print(f"CDRs: {annotation.summary()}")
+"""),
+
+md("""
+### Structural overlay
+
+Every member's CDR loops, superposed on a shared antibody framework and drawn over a
+single muted copy of the framework and antigen. Because the superposition is on the
+framework, the spread on screen is loop conformation; rigid-body placement has been
+removed. Color runs with `COLOR_BY`.
+
+Rotate with the mouse. Pass `max_overlay=N` to thin a large ensemble, and
+`align_on="antigen"` to superpose on the target instead, which puts placement back into
+the picture.
+"""),
+code("""
+from boltz_cdr.visualize import ensemble_view
+
+view = ensemble_view(
+    structures,
+    annotation,
+    values=selected[COLOR_BY].to_numpy(),
+    max_overlay=24,
+)
+view.show()
+"""),
+
+md("""
+### Conformation landscape
+
+The same loops projected to two dimensions, with a third quantity raised over the plane
+and smoothed into a surface. With `Z_COLUMN` set to a confidence measure the result is
+read like an energy landscape, the reaction coordinate replaced by a reduced description
+of loop conformation. Setting it to `dockq` instead shows true accuracy over the same
+plane, and the difference between the two surfaces is precisely the question the scorer
+comparison asks.
+
+The projection is PCA by default; the axis labels report how much of the ensemble's
+variance the two components capture, which is the honest caveat on any such plot. Passing
+`method="mds"` runs classical multidimensional scaling on pairwise CDR RMSD instead, which
+can represent an ensemble that is not well described by two linear modes.
+
+The surface is a kernel average, not an interpolant, so it cannot exceed the range of the
+observed values, and it is masked wherever no structure lies close enough to support it.
+The structures themselves are always drawn on top, so the density of evidence behind any
+feature is visible.
+"""),
+code("""
+from boltz_cdr.visualize import conformation_landscape, plot_landscape
+
+Z_COLUMN = "conf_iptm"     # try "dockq", "shape_complementarity", "conf_complex_plddt"
+
+landscape, projection, coords = conformation_landscape(
+    structures,
+    annotation,
+    selected[Z_COLUMN].to_numpy(),
+    method="pca",          # or "mds"
+)
+fig, _ = plot_landscape(
+    landscape,
+    projection,
+    value_label=Z_COLUMN,
+    title=f"{VIEW_TARGET} — CDR conformation landscape ({len(structures)} structures)",
+)
+fig.savefig("results/analysis/cdr_landscape.png", dpi=150, bbox_inches="tight")
+
+print(f"PC1+PC2 capture {projection.explained_variance.sum():.0%} of the conformational variance")
+print(f"kernel bandwidth {landscape.bandwidth:.2f}; {landscape.coverage:.0%} of the plane supported")
+print(f"{len(coords.residue_indices)} CDR residues compared across all members")
+"""),
+
+md("""
+Both cells work for any number of structures. If the surface appears as separate islands,
+the ensemble contains structural outliers far from the main cluster — informative in
+itself, and visible as isolated points in the contour panel.
+"""),
+
+md("## 10 · Figures"),
 code("""
 import pandas as pd, matplotlib.pyplot as plt, numpy as np
 
@@ -285,7 +390,7 @@ plt.tight_layout(); plt.show()
 """),
 
 md("""
-## 10 · Save results
+## 11 · Save results
 
 The analysis tables are small; the structures are not. Download just the tables, or copy
 the whole `results/` tree to Drive if you want to re-analyze later — `04_evaluate.py`

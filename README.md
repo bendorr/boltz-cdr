@@ -234,6 +234,7 @@ boltz-cdr/
 │   ├── run.py             in-process Boltz driver and output collection
 │   ├── scoring.py         confidence + physics scorers, ranking comparison
 │   ├── ensemble.py        ensemble diversity, clustering, coverage
+│   ├── visualize.py       CDR overlay (py3Dmol) and conformation landscape
 │   └── metrics/           RMSD family, contacts, DockQ, interface physics
 ├── scripts/               00 fetch · 01 dock · 02 Arm A · 03 Arm B · 04 evaluate
 │                          05 gradient demo · 06 synthetic ensemble · 07 CDR selection
@@ -259,6 +260,16 @@ Jaccard, and a per-residue-pair breakdown into recovered, missed, and spurious.
 **Interface physics** — shape complementarity on a grid-derived solvent-excluded surface,
 buried SASA, hydrogen bonds and their density, salt bridges, clashes, and buried
 unsatisfied polar atoms.
+
+**Visualization** — `visualize.py` provides two views of an ensemble, both used in the
+notebook. `ensemble_view` overlays every member's CDR loops on a shared framework in
+py3Dmol, zoomed on the paratope, so the spread on screen is loop conformation with
+rigid-body placement removed. `conformation_landscape` projects the same loops to two
+dimensions by PCA or classical MDS and raises a third quantity over the plane — model
+confidence, DockQ, shape complementarity — smoothed by Gaussian kernel regression into a
+surface read like an energy landscape. The surface is an average rather than an
+interpolant, so it cannot exceed the range of the observations, and it is masked wherever
+no structure lies close enough to support it.
 
 **Rankability** — Spearman correlation with DockQ, top-1 selected DockQ, and enrichment
 against oracle and random selection, for every scorer. Best-of-N accuracy is not directly
