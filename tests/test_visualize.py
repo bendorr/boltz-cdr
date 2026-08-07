@@ -400,3 +400,173 @@ def test_side_chains_off_omits_the_stick_style(native_complex):
     with_sc = ensemble_view(members, annotation, side_chains=True, controls=False)
     without = ensemble_view(members, annotation, side_chains=False, controls=False)
     assert with_sc.write_html().count("invert") > without.write_html().count("invert")
+
+
+# ------------------------------------------- model provenance and shared coloring
+
+def test_multimodel_load_records_pdb_model_numbers(tmp_path):
+    """Legend labels come from the file's own model numbering, not list position."""
+    from boltz_cdr.pdb_io import fetch_cif, load_models
+
+    try:
+        path = fetch_cif("9KFW", tmp_path)
+    except Exception as exc:
+        pytest.skip(f"could not fetch 9KFW: {exc}")
+
+    models = load_models(path)
+    assert len(models) > 1
+    assert [m.model_id for m in models[:3]] == ["model 1", "model 2", "model 3"]
+
+
+def test_model_id_survives_residue_subsetting(native_complex):
+    assert native_complex.antibody.model_id == "8QF4"
+    subset = native_complex.antibody.subset_residues(range(5))
+    assert subset.model_id == "8QF4"
+
+
+def test_default_labels_use_provenance(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    view = ensemble_view(members, annotation)
+    assert view.labels == ["8QF4"] * 3
+    assert ">8QF4</span>" in view.write_html()
+
+
+def test_member_colors_matches_the_view(native_complex):
+    """The landscape can only be keyed to the overlay if both agree on the colors."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view, member_colors
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    view = ensemble_view(members, annotation)
+    assert view.colors == member_colors(len(members))
+    assert len(set(view.colors)) == len(members)
+
+
+def test_member_colors_follows_values(native_complex):
+    from boltz_cdr.visualize import member_colors
+
+    by_index = member_colors(4)
+    by_value = member_colors(4, np.array([0.1, 0.2, 0.3, 0.9]))
+    assert by_index != by_value
+    assert all(c.startswith("#") for c in by_value)
+
+
+def test_landscape_accepts_matching_point_colors(native_complex):
+    import matplotlib
+    matplotlib.use("Agg")
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import conformation_landscape, ensemble_view, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    view = ensemble_view(members, annotation)
+    values = np.linspace(0.3, 0.9, 6)
+    landscape, projection, _ = conformation_landscape(members, annotation, values)
+
+    fig, (_ax3d, ax2d) = plot_landscape(landscape, projection, point_colors=view.colors)
+    # The 2D scatter must carry the supplied colors rather than the value colormap.
+    scatters = [c for c in ax2d.collections if hasattr(c, "get_facecolor")]
+    assert scatters
+    import matplotlib.colors as mcolors
+    drawn = {mcolors.to_hex(c) for c in scatters[-1].get_facecolor()}
+    assert drawn == set(view.colors)
+    matplotlib.pyplot.close(fig)
+
+
+def test_identity_on_the_floor_value_on_the_surface(native_complex):
+    """With point_colors, the 3D panel draws each structure twice at different heights.
+
+    Once on the x-y floor in its overlay color, marking where the conformation sits in
+    the reduced space, and once raised onto the surface colored by the fitted value.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.colors as mcolors
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    values = np.linspace(0.2, 0.9, 6)
+    landscape, projection, _ = conformation_landscape(members, annotation, values)
+    colors = member_colors(6)
+
+    fig, (ax3d, _ax2d) = plot_landscape(landscape, projection, point_colors=colors)
+    # mplot3d fills in a scatter's face colors only when the figure is drawn, and
+    # depth-sorts them as it does so; before that `get_facecolor()` is short.
+    fig.canvas.draw()
+
+    scatters = [c for c in ax3d.collections if hasattr(c, "get_offsets")]
+    assert len(scatters) >= 2, "expected a floor projection and an elevated set"
+
+    drawn = [
+        {mcolors.to_hex(c) for c in sc.get_facecolor()}
+        for sc in scatters
+        if len(sc.get_facecolor())
+    ]
+    assert any(group == set(colors) for group in drawn), (
+        "one scatter must carry the overlay identity colors"
+    )
+    # The elevated points sit at the observed values, the floor below all of them.
+    zlim = ax3d.get_zlim()
+    assert zlim[0] < landscape.z.min()
+    matplotlib.pyplot.close(fig)
+
+
+def test_stems_connect_floor_to_surface(native_complex):
+    """A faint neutral line joins each floor marker to its elevated point."""
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=5)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.3, 0.8, 5)
+    )
+    fig, (ax3d, _) = plot_landscape(
+        landscape, projection, point_colors=member_colors(5)
+    )
+    stems = ax3d.lines
+    assert len(stems) == len(members), "one stem per structure"
+    for stem in stems:
+        assert stem.get_alpha() < 0.6, "stems must be faint"
+    matplotlib.pyplot.close(fig)
+
+
+def test_surface_keeps_its_value_colormap(native_complex):
+    """The surface encodes the value in both modes; identity lives only on the points."""
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=5)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.2, 0.9, 5)
+    )
+    for colors in (None, member_colors(5)):
+        fig, _ = plot_landscape(landscape, projection, point_colors=colors)
+        assert fig.axes[1].collections[0].get_cmap().name == "viridis"
+        matplotlib.pyplot.close(fig)
+
+
+def test_axis_labels_present_on_both_panels(native_complex):
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=4)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.3, 0.7, 4)
+    )
+    fig, (ax3d, ax2d) = plot_landscape(
+        landscape, projection, value_label="score", point_colors=member_colors(4)
+    )
+    assert ax3d.get_xlabel() == projection.axis_labels[0]
+    assert ax3d.get_ylabel() == projection.axis_labels[1]
+    assert ax3d.get_zlabel() == "score"
+    assert ax2d.get_xlabel() == projection.axis_labels[0]
+    matplotlib.pyplot.close(fig)

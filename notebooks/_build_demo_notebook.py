@@ -128,8 +128,9 @@ Drag to rotate. The controls below the viewer are live:
   atoms that would form interface contacts stay identifiable without losing track of
   which model a side chain belongs to.
 - **framework / antigen** — hide the shared context and leave only the loops.
-- **the legend** — one checkbox per model, so individual conformations can be isolated or
-  removed. `show all` and `hide all` act on every model at once.
+- **the legend** — one checkbox per model, labeled with its PDB model number, so
+  individual conformations can be isolated or removed. `show all` and `hide all` act on
+  every model at once.
 
 The controls are plain JavaScript rather than ipywidgets, so they keep working in this
 saved notebook without a running kernel. GitHub's notebook preview strips scripts and
@@ -144,7 +145,6 @@ view = ensemble_view(
     height=520,
     side_chains=True,                    # start with side chains drawn
     color_side_chains_by_element=True,   # N blue, O red, S yellow; C per model
-    labels=[f"model {i + 1}" for i in range(len(models))],
 )
 view.show()
 """),
@@ -160,6 +160,13 @@ The third axis needs a per-structure quantity. With predicted structures that wo
 model confidence or DockQ; an NMR ensemble has neither, so this uses the
 **solvent-accessible surface area of the CDR loops**, a genuine conformational property
 that distinguishes compact paratope conformations from extended ones.
+
+In the 3D panel each model appears twice, at two heights. On the x-y floor it is drawn in
+the color its loops have in the overlay above, so the plane is a map of the ensemble: find
+a color here, then isolate that model in the viewer's legend. Raised onto the surface, the
+same model is colored by the value being fitted, on the surface's own scale, so it reads
+as an observation of the field. A faint gray stem joins the two. The 2D panel is the same
+floor projection, drawn over the contoured surface.
 
 The surface is a Gaussian kernel average, not an interpolant: it cannot exceed the range
 of the observed values, and it is masked wherever no model lies close enough to support
@@ -183,6 +190,7 @@ fig, _ = plot_landscape(
     landscape, projection,
     value_label="CDR solvent-accessible surface (A$^2$)",
     title=f"{PDB_ID} — {len(models)}-model NMR ensemble",
+    point_colors=view.colors,     # same color each model has in the 3D overlay
 )
 plt.show()
 
@@ -210,7 +218,7 @@ fig, _ = plot_landscape(
     landscape2, projection2,
     value_label="RMSD from ensemble mean (A)",
     title=f"{PDB_ID} — distance from the consensus conformation",
-    cmap="cividis",
+    point_colors=view.colors,
 )
 plt.show()
 """),
@@ -230,7 +238,11 @@ view = ensemble_view(structures, annotation, values=samples["conf_iptm"].to_nump
 landscape, projection, _ = conformation_landscape(
     structures, annotation, samples["conf_iptm"].to_numpy()
 )
+fig, _ = plot_landscape(landscape, projection, point_colors=view.colors)
 ```
+
+Legend labels then come from each prediction's file stem rather than a PDB model number,
+since that is the identifier a predicted structure carries.
 
 Complexes carry an antigen, so `ensemble_view` draws it as context and
 `align_on="antigen"` becomes available — superposing on the target instead of the

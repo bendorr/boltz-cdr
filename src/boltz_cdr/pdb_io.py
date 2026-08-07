@@ -40,6 +40,10 @@ class Chain:
     atom_res_index: np.ndarray  # (n_atom,) int -> index into resnums
     coords: np.ndarray  # (n_atom, 3) float64
     bfactors: np.ndarray  # (n_atom,) float64
+    # Where this chain came from — the PDB model number for a multi-model entry, or a
+    # file stem for a set of separate predictions. Purely descriptive: it is what labels
+    # a structure in a legend, and never participates in selection or geometry.
+    model_id: str = ""
 
     def __post_init__(self) -> None:
         n_res = len(self.resnums)
@@ -100,6 +104,7 @@ class Chain:
             atom_res_index=new_atom_res,
             coords=self.coords[atom_idx],
             bfactors=self.bfactors[atom_idx],
+            model_id=self.model_id,
         )
 
 
@@ -198,7 +203,9 @@ def load_models(
             candidates = [ch for ch in candidates if ch.name == chain_id]
         if not candidates:
             continue
-        models.append(_chain_from_gemmi(max(candidates, key=len)))
+        chain = _chain_from_gemmi(max(candidates, key=len))
+        chain.model_id = f"model {model.num}"
+        models.append(chain)
     if not models:
         msg = f"{path}: no polymer chain of >= {min_res} residues found"
         raise ValueError(msg)
@@ -218,8 +225,11 @@ def load_complex(
     if missing:
         msg = f"{path}: chain(s) {missing} not found; available: {sorted(chains)}"
         raise KeyError(msg)
+    complex_name = name or Path(path).stem
+    for chain in (chains[antibody_chain], chains[antigen_chain]):
+        chain.model_id = complex_name
     return Complex(
-        name=name or Path(path).stem,
+        name=complex_name,
         antibody=chains[antibody_chain],
         antigen=chains[antigen_chain],
         meta={"path": str(path)},
@@ -257,8 +267,11 @@ def load_predicted_complex(
         if len(assigned) == 2:  # noqa: PLR2004
             break
 
+    complex_name = name or Path(path).stem
+    for role in ("antibody", "antigen"):
+        chains[assigned[role]].model_id = complex_name
     return Complex(
-        name=name or Path(path).stem,
+        name=complex_name,
         antibody=chains[assigned["antibody"]],
         antigen=chains[assigned["antigen"]],
         meta={

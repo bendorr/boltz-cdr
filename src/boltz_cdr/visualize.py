@@ -408,13 +408,24 @@ def plot_landscape(
     value_label: str = "confidence",
     title: str | None = None,
     labels: list[str] | None = None,
-    cmap: str = "viridis",
+    cmap: str | None = None,
     figsize: tuple[float, float] = (13, 5.5),
     elev: float = 30,
     azim: float = -60,
+    point_colors: list[str] | None = None,
 ):
-    """A 3D surface with the observations on it, beside a 2D contour of the same fit."""
+    """A 3D surface with the observations on it, beside a 2D contour of the same fit.
+
+    `point_colors` overrides the coloring of the plotted structures — pass
+    `EnsembleView.colors` (or `member_colors(n)`) to give each point the same color its
+    loops have in the 3D overlay, so a feature of the landscape can be traced back to a
+    specific conformation. Without it the points are colored by their own value, which
+    reads as a check on the fitted surface instead.
+    """
     import matplotlib.pyplot as plt
+
+    if cmap is None:
+        cmap = "viridis"
 
     fig = plt.figure(figsize=figsize)
 
@@ -423,10 +434,40 @@ def plot_landscape(
         landscape.grid_x, landscape.grid_y, landscape.grid_z,
         cmap=cmap, alpha=0.75, linewidth=0, antialiased=True, rstride=2, cstride=2,
     )
-    ax3d.scatter(
-        landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-        c="black", s=22, depthshade=False, label=f"{len(landscape.z)} structures",
-    )
+
+    finite = landscape.grid_z[np.isfinite(landscape.grid_z)]
+    low = float(min(finite.min(), landscape.z.min())) if len(finite) else float(landscape.z.min())
+    high = float(max(finite.max(), landscape.z.max())) if len(finite) else float(landscape.z.max())
+    floor = low - 0.10 * max(high - low, 1e-9)
+    ax3d.set_zlim(floor, high)
+
+    if point_colors is not None:
+        # Two readings, kept apart by height. On the floor, each structure sits at its
+        # position in the reduced conformational space, in the color its loops have in the
+        # 3D overlay — the plane is a map of the ensemble. Raised onto the surface, the
+        # same structures are colored by the value being fitted, on the surface's own
+        # scale, so they read as observations of the field rather than as identities.
+        # A faint neutral stem ties each pair together without competing with either.
+        for x, y, z in zip(
+            landscape.xy[:, 0], landscape.xy[:, 1], landscape.z, strict=True
+        ):
+            ax3d.plot([x, x], [y, y], [floor, z], color="0.55", lw=0.6, alpha=0.4)
+        ax3d.scatter(
+            landscape.xy[:, 0], landscape.xy[:, 1], floor,
+            c=point_colors, s=30, edgecolor="black", linewidth=0.4, depthshade=False,
+            label=f"{len(landscape.z)} structures",
+        )
+        ax3d.scatter(
+            landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
+            c=landscape.z, cmap=cmap, vmin=low, vmax=high,
+            s=34, edgecolor="black", linewidth=0.5, depthshade=False,
+        )
+    else:
+        ax3d.scatter(
+            landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
+            c="black", s=22, depthshade=False, label=f"{len(landscape.z)} structures",
+        )
+
     ax3d.set_xlabel(projection.axis_labels[0], fontsize=8)
     ax3d.set_ylabel(projection.axis_labels[1], fontsize=8)
     ax3d.set_zlabel(value_label, fontsize=8)
@@ -442,10 +483,16 @@ def plot_landscape(
         landscape.grid_x, landscape.grid_y, landscape.grid_z,
         levels=18, colors="white", linewidths=0.4, alpha=0.5,
     )
-    ax2d.scatter(
-        landscape.xy[:, 0], landscape.xy[:, 1],
-        c=landscape.z, cmap=cmap, edgecolor="black", linewidth=0.6, s=60, zorder=3,
-    )
+    if point_colors is not None:
+        ax2d.scatter(
+            landscape.xy[:, 0], landscape.xy[:, 1],
+            c=point_colors, edgecolor="black", linewidth=0.7, s=72, zorder=3,
+        )
+    else:
+        ax2d.scatter(
+            landscape.xy[:, 0], landscape.xy[:, 1],
+            c=landscape.z, cmap=cmap, edgecolor="black", linewidth=0.6, s=60, zorder=3,
+        )
     if labels is not None:
         for (x, y), label in zip(landscape.xy, labels, strict=True):
             ax2d.annotate(str(label), (x, y), fontsize=6, xytext=(3, 3),
@@ -537,10 +584,14 @@ class EnsembleView:
     nbviewer, and any exported HTML.
     """
 
-    def __init__(self, html: str, view, n_members: int):
+    def __init__(self, html: str, view, n_members: int, colors=None, labels=None):
         self.html = html
         self.view = view
         self.n_members = n_members
+        # The color and label given to each member, in the order they were drawn. Pass
+        # `colors` to `plot_landscape(point_colors=...)` to key the two figures together.
+        self.colors = list(colors or [])
+        self.labels = list(labels or [])
 
     # py3Dmol publishes its viewer under both `application/3dmoljs_load.v0` and
     # `text/html`, and that is not redundant: VSCode's notebook renderer drives the
@@ -663,7 +714,11 @@ def ensemble_view(
         return view
 
     if labels is None:
-        labels = [f"model {i + 1}" for i in order]
+        # Prefer the identifier the structure came with — a PDB model number, or the file
+        # a prediction was read from — over a bare position in the list.
+        labels = [
+            _antibody(structures[i]).model_id or f"structure {i + 1}" for i in order
+        ]
     elif len(labels) == len(structures):
         labels = [labels[i] for i in order]
 
@@ -682,7 +737,7 @@ def ensemble_view(
         show_context=show_context,
         width=width,
     )
-    return EnsembleView(html, view, len(order))
+    return EnsembleView(html, view, len(order), colors=colors, labels=labels)
 
 
 def _member_styles(color: str, side_chains: bool, by_element: bool) -> list[dict]:
@@ -750,19 +805,22 @@ def _view_with_controls(
 
     controls = f"""
 <style>
-.bc-wrap{{font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  max-width:{width}px;margin-top:6px}}
-.bc-opts{{display:flex;gap:16px;flex-wrap:wrap;padding:6px 2px;border-bottom:1px solid #e3e3e3}}
-.bc-opts label{{display:flex;align-items:center;gap:5px;cursor:pointer}}
-.bc-legend{{display:flex;flex-wrap:wrap;gap:2px 14px;padding:7px 2px;max-height:150px;
-  overflow-y:auto}}
-.bc-row{{display:flex;align-items:center;gap:5px;cursor:pointer;min-width:118px}}
-.bc-swatch{{width:11px;height:11px;border-radius:2px;border:1px solid #00000026;
+.bc-wrap{{font:11.5px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  max-width:{width}px;margin-top:4px;color:#222}}
+.bc-opts{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:3px 2px;
+  border-bottom:1px solid #e3e3e3}}
+.bc-opts label{{display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap}}
+.bc-opts input{{margin:0}}
+.bc-legend{{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));
+  gap:0 8px;padding:4px 2px;max-height:132px;overflow-y:auto}}
+.bc-row{{display:flex;align-items:center;gap:4px;cursor:pointer;line-height:1.5}}
+.bc-row input{{margin:0;flex:0 0 auto}}
+.bc-swatch{{width:10px;height:10px;border-radius:2px;border:1px solid #00000026;
   flex:0 0 auto}}
-.bc-name{{color:#222}}
-.bc-val{{color:#888;font-variant-numeric:tabular-nums}}
-.bc-btn{{font:inherit;padding:1px 8px;border:1px solid #ccc;border-radius:4px;
-  background:#fafafa;cursor:pointer}}
+.bc-name{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.bc-val{{color:#888;font-variant-numeric:tabular-nums;margin-left:auto;padding-left:4px}}
+.bc-btn{{font:inherit;padding:0 6px;border:1px solid #ccc;border-radius:3px;
+  background:#fafafa;cursor:pointer;line-height:1.6}}
 </style>
 <div class="bc-wrap">
   <div class="bc-opts">
@@ -835,6 +893,16 @@ var BC{uid} = (function() {{
 </script>
 """
     return base + controls
+
+
+def member_colors(n_members: int, values: np.ndarray | None = None) -> list[str]:
+    """The colors `ensemble_view` assigns, exposed so other plots can match them.
+
+    Passing the same list to `plot_landscape(point_colors=...)` makes a point on the
+    landscape and a loop in the 3D overlay the same color, which is what allows the two
+    figures to be read against each other.
+    """
+    return _value_colors(values, list(range(n_members)))
 
 
 def _value_colors(values, order) -> list[str]:
