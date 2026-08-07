@@ -80,6 +80,12 @@ def main() -> int:
     )
     print(f"{viewers} interactive viewer output(s) retained")
 
+    # Drop per-cell execution timestamps. They change on every run and would otherwise
+    # make each re-execution a diff of the whole notebook, obscuring whether any output
+    # actually changed. (py3Dmol's viewer id is randomized per run and still churns.)
+    for cell in nb.cells:
+        cell.get("metadata", {}).pop("execution", None)
+
     n_out = sum(len(c.get("outputs", [])) for c in nb.cells if c.cell_type == "code")
     n_code = sum(1 for c in nb.cells if c.cell_type == "code")
     nbformat.write(nb, NOTEBOOK)
