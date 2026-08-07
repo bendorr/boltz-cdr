@@ -1,16 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boltz-cdr"
+version = "0.1.0"
+description = "CDR-selective resampling and ensemble analysis for Boltz-2 antibody-antigen predictions"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Ben Orr" }]
+keywords = ["protein-design", "antibody", "nanobody", "structure-prediction", "diffusion"]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "gemmi>=0.6",
+    "biopython>=1.81",
+    "torch>=2.0",
+    "matplotlib>=3.7",
+    "py3Dmol>=2.0",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+# Boltz-2 itself. Pinned: src/boltz_cdr/sampler.py vendors a copy of this version's
+# AtomDiffusion.sample, and src/boltz_cdr/patch.py refuses to install against any other.
+gpu = ["boltz==2.2.1"]
+# Test suite, linter, and the notebook tooling used to regenerate and execute the demo.
+dev = ["pytest>=7.4", "ruff>=0.6", "nbformat>=5.9", "nbclient>=0.9", "ipykernel>=6.29", "esprima>=4.0"]
+
+[project.urls]
+Homepage = "https://github.com/bendorr/boltz-cdr"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 src = ["src", "scripts", "tests"]
-# Notebook style is not library style: cells legitimately re-import to survive
-# out-of-order execution and group imports on one line.
-extend-exclude = ["notebooks"]
+# Notebook *cells* are not library code: they legitimately re-import to survive
+# out-of-order execution and group imports on one line. The .py helpers in notebooks/
+# are ordinary modules and are linted normally.
+extend-exclude = ["notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "I", "UP", "B", "SIM", "RUF", "C4", "PL"]
 ignore = [
     "E501",     # long lines: docstrings in this project carry scientific rationale
-    "RUF002",   # ambiguous unicode: we write Å, µ, and em dashes deliberately
+    "RUF001",   # ambiguous unicode: we write Å, µ, en and em dashes deliberately
+    "RUF002",
     "RUF003",
     "PLR0913",  # many arguments: the run scripts are configuration-heavy by nature
     "PLR0917",

@@ -542,6 +542,20 @@ class EnsembleView:
         self.view = view
         self.n_members = n_members
 
+    # py3Dmol publishes its viewer under both `application/3dmoljs_load.v0` and
+    # `text/html`, and that is not redundant: VSCode's notebook renderer drives the
+    # interactive viewer from the former. Emitting only `text/html` yields a static
+    # picture there. Both are therefore published here too, which costs a duplicated
+    # payload in the saved notebook and buys interactivity in every host.
+    _MIMETYPE = "application/3dmoljs_load.v0"
+
+    def _repr_mimebundle_(self, include=None, exclude=None):
+        return {
+            self._MIMETYPE: self.html,
+            "text/html": self.html,
+            "text/plain": f"<EnsembleView: {self.n_members} members>",
+        }
+
     def _repr_html_(self) -> str:
         return self.html
 
@@ -549,9 +563,9 @@ class EnsembleView:
         return self.html
 
     def show(self) -> None:
-        from IPython.display import HTML, display
+        from IPython.display import publish_display_data
 
-        display(HTML(self.html))
+        publish_display_data(self._repr_mimebundle_())
 
 
 def ensemble_view(

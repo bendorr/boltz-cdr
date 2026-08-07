@@ -20,6 +20,35 @@ from nbclient import NotebookClient
 NOTEBOOK = pathlib.Path("notebooks/cdr_ensemble_visualization.ipynb")
 
 
+def _verify_interpreter(nb, client) -> str:
+    """Run a probe cell to confirm the kernel is this interpreter, then discard it.
+
+    `kernel_name="python3"` resolves through the Jupyter kernelspec search path, which
+    can easily point at an unrelated environment. Committing outputs produced by the
+    wrong interpreter would be silent and hard to notice, so the interpreter is checked
+    rather than assumed.
+    """
+    probe = nbformat.v4.new_code_cell("import sys; print(sys.executable)")
+    nb.cells.insert(0, probe)
+    try:
+        client.execute_cell(probe, 0)
+        executed_by = "".join(
+            "".join(o.get("text", "")) for o in probe.get("outputs", [])
+        ).strip()
+    finally:
+        nb.cells.pop(0)
+
+    if pathlib.Path(executed_by).resolve() != pathlib.Path(sys.executable).resolve():
+        msg = (
+            f"kernel interpreter {executed_by} is not the interpreter running this "
+            f"script ({sys.executable}). The committed outputs would come from a "
+            f"different environment. Install a kernelspec for this environment with "
+            f"`python -m ipykernel install --user --name <name>` and pass it explicitly."
+        )
+        raise RuntimeError(msg)
+    return executed_by
+
+
 def main() -> int:
     if not NOTEBOOK.exists():
         print(f"{NOTEBOOK} not found; run notebooks/_build_demo_notebook.py first")
@@ -33,23 +62,23 @@ def main() -> int:
         resources={"metadata": {"path": str(pathlib.Path.cwd())}},
         allow_errors=False,
     )
-    print(f"executing {NOTEBOOK} ...")
-    client.execute()
+    with client.setup_kernel():
+        interpreter = _verify_interpreter(nb, client)
+        print(f"kernel interpreter verified: {pathlib.Path(interpreter).name}")
+        print(f"executing {NOTEBOOK} ...")
+        for index, cell in enumerate(nb.cells):
+            client.execute_cell(cell, index)
 
-    # py3Dmol emits the same viewer twice, as text/html and under a private mimetype.
-    # Every renderer that can run the viewer at all reads the HTML, so the duplicate is
-    # half a megabyte of committed payload for nothing.
-    dropped = 0
-    for cell in nb.cells:
-        for output in cell.get("outputs", []):
-            data = output.get("data", {})
-            private = [k for k in data if k.startswith("application/3dmoljs")]
-            if private and "text/html" in data:
-                for key in private:
-                    del data[key]
-                    dropped += 1
-    if dropped:
-        print(f"dropped {dropped} duplicate py3Dmol mimetype payload(s)")
+    # The viewer payload is deliberately kept under both `application/3dmoljs_load.v0`
+    # and `text/html`. Stripping the former halves the file size but leaves VSCode
+    # rendering a static image instead of an interactive viewer, so it stays.
+    viewers = sum(
+        1
+        for cell in nb.cells
+        for output in cell.get("outputs", [])
+        if "application/3dmoljs_load.v0" in output.get("data", {})
+    )
+    print(f"{viewers} interactive viewer output(s) retained")
 
     n_out = sum(len(c.get("outputs", [])) for c in nb.cells if c.cell_type == "code")
     n_code = sum(1 for c in nb.cells if c.cell_type == "code")

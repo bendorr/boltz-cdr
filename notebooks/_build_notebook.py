@@ -13,6 +13,7 @@ Usage (from the repository root):
 
 import json
 
+
 def lines(src):
     """Jupyter source convention: every line ends with \\n except the last."""
     parts = src.strip().split("\n")
