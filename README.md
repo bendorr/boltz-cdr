@@ -45,10 +45,10 @@ ability to select it.
                      │        (no complex structure known)          │
                      └───────────────────────┬──────────────────────┘
                                              │
- ╔═══════════════════════════════════════════▼════════════════════════════════════════╗
+ ╔═══════════════════════════════════════════▼═════════════════════════════════════════╗
  ║  STAGE 0 · GLOBAL DOCK                              stock Boltz-2  ×  N seeds       ║
  ║  rank poses by  ipTM · interface-PAE · interface-pLDDT   ──────────►  ARM 0 BASELINE║
- ╚═══════════════════════════════════════════╤════════════════════════════════════════╝
+ ╚═══════════════════════════════════════════╤═════════════════════════════════════════╝
                                              │  top-K docked poses
                           ┌──────────────────┴──────────────────┐
                           │                                     │
@@ -62,7 +62,7 @@ ability to select it.
  ║        │  ✂ delete CDR residues            ║ ║      loop-only stochasticity; framework║
  ║        ▼                                   ║ ║      + antigen keep normal trajectory  ║
  ║   ┌────────────────────┐                   ║ ║                                        ║
- ║   │ ████████  ✂  ✂  ✂ │  framework kept   ║ ║  B2  re-noise ONLY CDR atoms to an     ║
+ ║   │ ████████  ✂  ✂  ✂  │  framework kept   ║ ║  B2  re-noise ONLY CDR atoms to an     ║
  ║   │ ████████  antigen  │  antigen kept     ║ ║      intermediate σ, starting from a   ║
  ║   │           CDRs ✗   │  CDRs removed     ║ ║      docked pose → partial diffusion   ║
  ║   └──────────┬─────────┘                   ║ ║                                        ║
@@ -75,20 +75,20 @@ ability to select it.
                           └──────────────────┬──────────────────┘
                                              ▼
  ╔════════════════════════════════════════════════════════════════════════════════════╗
- ║  STAGE 3 · SCORE  &  SELECT      — two independent scorer families, compared —      ║
- ║                                                                                     ║
- ║   model confidence          │   interface physics (model-independent)               ║
- ║   ipTM · pTM · ipLDDT · iPAE│   shape complementarity Sc · interface H-bonds        ║
- ║                             │   salt bridges · buried SASA · clashes                ║
+ ║  STAGE 3 · SCORE  &  SELECT      — two independent scorer families, compared —     ║
+ ║                                                                                    ║
+ ║   model confidence          │   interface physics (model-independent)              ║
+ ║   ipTM · pTM · ipLDDT · iPAE│   shape complementarity Sc · interface H-bonds       ║
+ ║                             │   salt bridges · buried SASA · clashes               ║
  ╚═══════════════════════════════════════════╤════════════════════════════════════════╝
                                              ▼
  ╔════════════════════════════════════════════════════════════════════════════════════╗
- ║  STAGE 4 · EVALUATE  vs. crystal structure                                          ║
- ║                                                                                     ║
- ║   ACCURACY      complex RMSD · ligand RMSD · interface RMSD · per-CDR RMSD · DockQ   ║
- ║   CONTACTS      fnat · fnonnat · precision/recall/F1 · epitope & paratope recall     ║
- ║   ENSEMBLE      diversity · best-of-N coverage                                       ║
- ║   RANKABILITY   Spearman(score, DockQ) · top-1 selected DockQ · enrichment           ║
+ ║  STAGE 4 · EVALUATE  vs. crystal structure                                         ║
+ ║                                                                                    ║
+ ║   ACCURACY      complex RMSD · ligand RMSD · interface RMSD · per-CDR RMSD · DockQ ║
+ ║   CONTACTS      fnat · fnonnat · precision/recall/F1 · epitope & paratope recall   ║
+ ║   ENSEMBLE      diversity · best-of-N coverage                                     ║
+ ║   RANKABILITY   Spearman(score, DockQ) · top-1 selected DockQ · enrichment         ║
  ╚════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
