@@ -275,9 +275,13 @@ single muted copy of the framework and antigen. Because the superposition is on 
 framework, the spread on screen is loop conformation; rigid-body placement has been
 removed. Color runs with `COLOR_BY`.
 
-Rotate with the mouse. Pass `max_overlay=N` to thin a large ensemble, and
-`align_on="antigen"` to superpose on the target instead, which puts placement back into
-the picture.
+Rotate with the mouse. The controls under the viewer toggle side chains, switch
+side-chain coloring between the member's own color and per-element colors (N blue, O red,
+S yellow, with carbon keeping the member color), hide the shared framework and antigen,
+and show or hide individual members from the legend.
+
+Pass `max_overlay=N` to thin a large ensemble, and `align_on="antigen"` to superpose on
+the target instead, which puts rigid-body placement back into the picture.
 """),
 code("""
 from boltz_cdr.visualize import ensemble_view

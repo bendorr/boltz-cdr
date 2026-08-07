@@ -270,7 +270,10 @@ unsatisfied polar atoms.
 **Visualization** — `visualize.py` provides two views of an ensemble, both used in the
 notebook. `ensemble_view` overlays every member's CDR loops on a shared framework in
 py3Dmol, zoomed on the paratope, so the spread on screen is loop conformation with
-rigid-body placement removed. `conformation_landscape` projects the same loops to two
+rigid-body placement removed. It ships with JavaScript controls — rather than ipywidgets,
+so they survive in a saved notebook — for toggling side chains, coloring side-chain
+heteroatoms by element while carbon keeps the member color, hiding the shared context, and
+showing or hiding individual members from a color-coded legend. `conformation_landscape` projects the same loops to two
 dimensions by PCA or classical MDS and raises a third quantity over the plane — model
 confidence, DockQ, shape complementarity — smoothed by Gaussian kernel regression into a
 surface read like an energy landscape. The surface is an average rather than an

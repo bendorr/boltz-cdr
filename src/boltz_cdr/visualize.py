@@ -512,6 +512,48 @@ def complex_to_pdb(cx: EnsembleMember, *, residue_subset=None) -> str:
     return structure.make_pdb_string()
 
 
+# Jmol/CPK element colors for side-chain atoms. Carbon is deliberately absent: it takes
+# the per-structure color, so that members stay distinguishable while the heteroatoms that
+# actually make interface contacts are identifiable at a glance.
+ELEMENT_COLORS = {
+    "N": "#3050F8",
+    "O": "#FF0D0D",
+    "S": "#FFFF30",
+    "P": "#FF8000",
+    "SE": "#FFA100",
+    "F": "#90E050",
+    "CL": "#1FF01F",
+}
+
+BACKBONE_ATOMS = ["N", "CA", "C", "O"]
+
+
+class EnsembleView:
+    """A py3Dmol viewer with toggles, rendered as self-contained HTML.
+
+    The controls are plain JavaScript rather than ipywidgets. A notebook committed with
+    its outputs has no live kernel behind it, so widget callbacks would be dead on arrival
+    for anyone reading the saved file; JavaScript keeps the toggles working in Colab,
+    nbviewer, and any exported HTML.
+    """
+
+    def __init__(self, html: str, view, n_members: int):
+        self.html = html
+        self.view = view
+        self.n_members = n_members
+
+    def _repr_html_(self) -> str:
+        return self.html
+
+    def write_html(self) -> str:
+        return self.html
+
+    def show(self) -> None:
+        from IPython.display import HTML, display
+
+        display(HTML(self.html))
+
+
 def ensemble_view(
     structures: list[EnsembleMember],
     annotation: CDRAnnotation,
@@ -523,15 +565,37 @@ def ensemble_view(
     height: int = 600,
     zoom_padding: float = 4.0,
     max_overlay: int | None = None,
+    side_chains: bool = True,
+    color_side_chains_by_element: bool = True,
+    show_context: bool = True,
+    controls: bool = True,
+    labels: list[str] | None = None,
 ):
     """A py3Dmol view of the CDR loops of every member, on one shared framework.
 
     The framework — and the antigen, when the members carry one — is drawn once from the
-    first structure; each member then contributes only its CDR loops. Color runs through a spectrum by member index, or by
-    `values` (confidence, DockQ, anything per-structure) when supplied. The camera is
-    zoomed on the loops.
+    first structure; each member then contributes only its CDR loops. Color runs through a
+    spectrum by member index, or by `values` (confidence, DockQ, anything per-structure)
+    when supplied. The camera is zoomed on the loops.
 
-    Returns the `py3Dmol.view`, which renders directly in a notebook.
+    Parameters
+    ----------
+    side_chains
+        Draw side-chain atoms as sticks in addition to the backbone. Side chains are what
+        actually contact the antigen, but they clutter an overlay of many members, so this
+        is a toggle rather than a fixed choice.
+    color_side_chains_by_element
+        Color side-chain carbon with the member's own color and heteroatoms by element
+        (N blue, O red, S yellow). This keeps members distinguishable while making the
+        polar and charged atoms that form interface contacts identifiable.
+    show_context
+        Draw the shared framework and antigen behind the loops.
+    controls
+        Emit HTML controls for the options above plus a per-member legend with
+        show/hide checkboxes, and return an `EnsembleView`. With `controls=False` the
+        bare `py3Dmol.view` is returned, styled to the options given.
+    labels
+        Names for the legend, one per member. Defaults to the member index.
     """
     try:
         import py3Dmol
@@ -553,9 +617,12 @@ def ensemble_view(
 
     # Context: the reference member in full, drawn once and muted.
     view.addModel(complex_to_pdb(structures[0]), "pdb")
-    view.setStyle({"model": 0}, {"cartoon": {"color": "lightgray", "opacity": 0.55}})
+    context_style = (
+        {"cartoon": {"color": "lightgray", "opacity": 0.55}} if show_context else {}
+    )
+    view.setStyle({"model": 0}, context_style)
     context_antigen = _antigen(structures[0])
-    if context_antigen is not None:
+    if context_antigen is not None and show_context:
         view.addStyle(
             {"model": 0, "chain": context_antigen.chain_id},
             {"cartoon": {"color": "#8fb8d8", "opacity": 0.75}},
@@ -571,16 +638,189 @@ def ensemble_view(
         # Rebuild each member in the reference frame so the overlay is meaningful.
         moved = _in_reference_frame(structures[index], structures[0], annotation, align_on)
         view.addModel(complex_to_pdb(moved, residue_subset=loop_residues), "pdb")
-        view.setStyle(
-            {"model": slot + 1},
-            {"cartoon": {"color": colors[slot]},
-             "stick": {"color": colors[slot], "radius": 0.10}},
-        )
+        for style in _member_styles(colors[slot], side_chains, color_side_chains_by_element):
+            view.addStyle({"model": slot + 1, **style["sel"]}, style["style"])
 
     resnums = [int(reference_ab.resnums[i]) for i in loop_residues]
     view.zoomTo({"model": 0, "chain": reference_ab.chain_id, "resi": resnums})
     view.zoom(1.0 - zoom_padding / 100.0)
-    return view
+
+    if not controls:
+        return view
+
+    if labels is None:
+        labels = [f"model {i + 1}" for i in order]
+    elif len(labels) == len(structures):
+        labels = [labels[i] for i in order]
+
+    legend_values = None
+    if values is not None:
+        finite = np.asarray(values, dtype=float)[order]
+        legend_values = [None if not np.isfinite(v) else float(v) for v in finite]
+
+    html = _view_with_controls(
+        view,
+        colors=colors,
+        labels=[str(label) for label in labels],
+        legend_values=legend_values,
+        side_chains=side_chains,
+        by_element=color_side_chains_by_element,
+        show_context=show_context,
+        width=width,
+    )
+    return EnsembleView(html, view, len(order))
+
+
+def _member_styles(color: str, side_chains: bool, by_element: bool) -> list[dict]:
+    """py3Dmol style entries for one overlaid member."""
+    styles = [
+        {
+            "sel": {"atom": BACKBONE_ATOMS},
+            "style": {"cartoon": {"color": color},
+                      "stick": {"color": color, "radius": 0.10}},
+        }
+    ]
+    if side_chains:
+        if by_element:
+            scheme = {"prop": "elem", "map": {"C": color, **ELEMENT_COLORS}}
+            stick = {"radius": 0.12, "colorscheme": scheme}
+        else:
+            stick = {"radius": 0.12, "color": color}
+        styles.append(
+            {"sel": {"atom": BACKBONE_ATOMS, "invert": True}, "style": {"stick": stick}}
+        )
+    return styles
+
+
+def _view_with_controls(
+    view,
+    *,
+    colors: list[str],
+    labels: list[str],
+    legend_values: list[float | None] | None,
+    side_chains: bool,
+    by_element: bool,
+    show_context: bool,
+    width: int,
+) -> str:
+    """Wrap a py3Dmol view in HTML controls driven by plain JavaScript.
+
+    py3Dmol assigns its viewer to a global `viewer_<uid>` inside a `$3Dmolpromise.then`
+    callback. Chaining a second callback on the same promise therefore runs after the
+    viewer exists, whether or not 3Dmol.js has already been fetched, which is what lets
+    the controls attach without ipywidgets or a live kernel.
+    """
+    import json
+    import re
+
+    base = view._make_html()  # py3Dmol's own accessor for its generated HTML
+    match = re.search(r"viewer_(\d+)", base)
+    if match is None:  # pragma: no cover - py3Dmol has always emitted this
+        return base
+    uid = match.group(1)
+
+    rows = []
+    for i in range(len(labels)):
+        suffix = ""
+        if legend_values is not None and legend_values[i] is not None:
+            suffix = f' <span class="bc-val">{legend_values[i]:.3g}</span>'
+        rows.append(
+            f'<label class="bc-row"><input type="checkbox" checked '
+            f'onchange="BC{uid}.member({i}, this.checked)">'
+            f'<span class="bc-swatch" style="background:{colors[i]}"></span>'
+            f'<span class="bc-name">{labels[i]}</span>{suffix}</label>'
+        )
+
+    def checked(flag: bool) -> str:
+        return " checked" if flag else ""
+
+    controls = f"""
+<style>
+.bc-wrap{{font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  max-width:{width}px;margin-top:6px}}
+.bc-opts{{display:flex;gap:16px;flex-wrap:wrap;padding:6px 2px;border-bottom:1px solid #e3e3e3}}
+.bc-opts label{{display:flex;align-items:center;gap:5px;cursor:pointer}}
+.bc-legend{{display:flex;flex-wrap:wrap;gap:2px 14px;padding:7px 2px;max-height:150px;
+  overflow-y:auto}}
+.bc-row{{display:flex;align-items:center;gap:5px;cursor:pointer;min-width:118px}}
+.bc-swatch{{width:11px;height:11px;border-radius:2px;border:1px solid #00000026;
+  flex:0 0 auto}}
+.bc-name{{color:#222}}
+.bc-val{{color:#888;font-variant-numeric:tabular-nums}}
+.bc-btn{{font:inherit;padding:1px 8px;border:1px solid #ccc;border-radius:4px;
+  background:#fafafa;cursor:pointer}}
+</style>
+<div class="bc-wrap">
+  <div class="bc-opts">
+    <label><input type="checkbox"{checked(side_chains)}
+      onchange="BC{uid}.sideChains(this.checked)"> side chains</label>
+    <label><input type="checkbox"{checked(by_element)}
+      onchange="BC{uid}.byElement(this.checked)"> color side chains by element</label>
+    <label><input type="checkbox"{checked(show_context)}
+      onchange="BC{uid}.context(this.checked)"> framework / antigen</label>
+    <button class="bc-btn" onclick="BC{uid}.all(true)">show all</button>
+    <button class="bc-btn" onclick="BC{uid}.all(false)">hide all</button>
+  </div>
+  <div class="bc-legend">{"".join(rows)}</div>
+</div>
+<script>
+var BC{uid} = (function() {{
+  var colors  = {json.dumps(colors)};
+  var visible = colors.map(function() {{ return true; }});
+  var opts = {{ side: {json.dumps(side_chains)}, elem: {json.dumps(by_element)},
+                context: {json.dumps(show_context)} }};
+  var BB = {json.dumps(BACKBONE_ATOMS)};
+  var ELEM = {json.dumps(ELEMENT_COLORS)};
+
+  function viewer() {{ return window["viewer_{uid}"]; }}
+
+  function restyle() {{
+    var v = viewer();
+    if (!v) return;
+    v.setStyle({{model: 0}}, opts.context
+      ? {{cartoon: {{color: "lightgray", opacity: 0.55}}}} : {{}});
+    for (var i = 0; i < colors.length; i++) {{
+      var m = i + 1;
+      v.setStyle({{model: m}}, {{}});
+      if (!visible[i]) continue;
+      v.addStyle({{model: m, atom: BB}},
+        {{cartoon: {{color: colors[i]}}, stick: {{color: colors[i], radius: 0.10}}}});
+      if (opts.side) {{
+        var stick;
+        if (opts.elem) {{
+          var map = JSON.parse(JSON.stringify(ELEM));
+          map["C"] = colors[i];
+          stick = {{radius: 0.12, colorscheme: {{prop: "elem", map: map}}}};
+        }} else {{
+          stick = {{radius: 0.12, color: colors[i]}};
+        }}
+        v.addStyle({{model: m, atom: BB, invert: true}}, {{stick: stick}});
+      }}
+    }}
+    v.render();
+  }}
+
+  var api = {{
+    member: function(i, on) {{ visible[i] = on; restyle(); }},
+    sideChains: function(on) {{ opts.side = on; restyle(); }},
+    byElement: function(on) {{ opts.elem = on; restyle(); }},
+    context: function(on) {{ opts.context = on; restyle(); }},
+    all: function(on) {{
+      for (var i = 0; i < visible.length; i++) visible[i] = on;
+      var boxes = document.querySelectorAll(".bc-legend input");
+      for (var k = 0; k < boxes.length; k++) boxes[k].checked = on;
+      restyle();
+    }},
+    restyle: restyle
+  }};
+  if (typeof $3Dmolpromise !== "undefined" && $3Dmolpromise) {{
+    $3Dmolpromise.then(restyle);
+  }}
+  return api;
+}})();
+</script>
+"""
+    return base + controls
 
 
 def _value_colors(values, order) -> list[str]:

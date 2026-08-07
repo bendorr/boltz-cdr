@@ -295,3 +295,108 @@ def test_ensemble_view_colors_by_value(native_complex):
 
     colors = set(re.findall(r'"color":\s*"(#[0-9a-fA-F]{6})"', html))
     assert len(colors) >= 4, "distinct values should map to distinct colors"
+
+
+# ------------------------------------------------------------------ view controls
+
+def test_view_returns_controls_by_default(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import EnsembleView, ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=4)
+    view = ensemble_view(members, annotation)
+    assert isinstance(view, EnsembleView)
+    assert view.n_members == 4
+    assert "<script>" in view.write_html()
+
+
+def test_controls_false_returns_bare_py3dmol_view(native_complex):
+    py3dmol = pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    view = ensemble_view(members, annotation, controls=False)
+    assert isinstance(view, py3dmol.view)
+
+
+def test_control_javascript_is_syntactically_valid(native_complex):
+    """The toggles are hand-written JavaScript, so parse it rather than trust it."""
+    pytest.importorskip("py3Dmol")
+    esprima = pytest.importorskip("esprima")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    html = ensemble_view(members, annotation).write_html()
+    script = html.rsplit("<script>", 1)[1].rsplit("</script>", 1)[0]
+    esprima.parseScript(script)
+
+
+def test_legend_has_one_toggle_per_member(native_complex):
+    pytest.importorskip("py3Dmol")
+    import re
+
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=5)
+    html = ensemble_view(members, annotation).write_html()
+    uid = re.search(r"viewer_(\d+)", html).group(1)
+
+    assert html.count(f"BC{uid}.member(") == len(members)
+    swatches = re.findall(r'bc-swatch" style="background:(#[0-9a-f]{6})', html)
+    assert len(swatches) == len(members)
+    assert len(set(swatches)) == len(members), "each member needs a distinct swatch"
+
+
+def test_legend_labels_and_values(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    html = ensemble_view(
+        members, annotation, labels=["low", "mid", "high"], values=np.array([0.11, 0.55, 0.99])
+    ).write_html()
+    for label in ("low", "mid", "high"):
+        assert f">{label}</span>" in html
+    for value in ("0.11", "0.55", "0.99"):
+        assert value in html
+
+
+def test_side_chain_and_element_toggles_reach_the_markup(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ELEMENT_COLORS, ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    html = ensemble_view(members, annotation).write_html()
+
+    # Side chains are everything that is not backbone.
+    assert "invert: true" in html
+    # Heteroatoms get element colors; carbon takes the member's color.
+    for color in ELEMENT_COLORS.values():
+        assert color in html
+    assert '"C": colors[i]' in html or 'map["C"] = colors[i]' in html
+
+
+def test_initial_toggle_state_follows_the_arguments(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    on = ensemble_view(members, annotation, side_chains=True, show_context=True).write_html()
+    off = ensemble_view(
+        members, annotation, side_chains=False, color_side_chains_by_element=False,
+        show_context=False,
+    ).write_html()
+
+    assert "side: true" in on and "context: true" in on
+    assert "side: false" in off and "elem: false" in off and "context: false" in off
+
+
+def test_side_chains_off_omits_the_stick_style(native_complex):
+    """The static styles, not just the JS state, must honor the argument."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=2)
+    with_sc = ensemble_view(members, annotation, side_chains=True, controls=False)
+    without = ensemble_view(members, annotation, side_chains=False, controls=False)
+    assert with_sc.write_html().count("invert") > without.write_html().count("invert")

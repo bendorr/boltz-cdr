@@ -119,12 +119,33 @@ md("""
 The framework is drawn once, muted; each model contributes only its CDR loops, colored
 through a spectrum by model index. The camera is zoomed on the paratope.
 
-Drag to rotate. The viewer is interactive JavaScript, so it renders in Jupyter, Colab and
-nbviewer — GitHub's notebook preview strips scripts and will show this cell as blank.
+Drag to rotate. The controls below the viewer are live:
+
+- **side chains** — show or hide side-chain atoms. They make the contacts but clutter an
+  overlay of twenty models, so this is a toggle rather than a fixed choice.
+- **color side chains by element** — side-chain carbon keeps the model's own color while
+  nitrogen, oxygen and sulfur take their conventional colors, so the polar and charged
+  atoms that would form interface contacts stay identifiable without losing track of
+  which model a side chain belongs to.
+- **framework / antigen** — hide the shared context and leave only the loops.
+- **the legend** — one checkbox per model, so individual conformations can be isolated or
+  removed. `show all` and `hide all` act on every model at once.
+
+The controls are plain JavaScript rather than ipywidgets, so they keep working in this
+saved notebook without a running kernel. GitHub's notebook preview strips scripts and
+will show this cell as blank; Colab, Jupyter and nbviewer render it.
 """),
 
 code("""
-view = ensemble_view(models, annotation, width=820, height=520)
+view = ensemble_view(
+    models,
+    annotation,
+    width=820,
+    height=520,
+    side_chains=True,                    # start with side chains drawn
+    color_side_chains_by_element=True,   # N blue, O red, S yellow; C per model
+    labels=[f"model {i + 1}" for i in range(len(models))],
+)
 view.show()
 """),
 
