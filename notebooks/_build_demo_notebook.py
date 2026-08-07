@@ -116,8 +116,16 @@ plt.tight_layout(); plt.show()
 md("""
 ## 1 · Structural overlay
 
-The framework is drawn once, muted; each model contributes only its CDR loops, colored
-through a spectrum by model index. The camera is zoomed on the paratope.
+The framework is drawn once, muted; each model contributes only its CDR loops. The camera
+is zoomed on the paratope.
+
+**Color runs red to purple along an ordering of the models by structural similarity**, so
+position in the spectrum is itself a coordinate through conformational space: loops of a
+similar shape take similar colors, and two models at opposite ends of the rainbow are the
+two most different conformations in the ensemble. The ordering comes from hierarchical
+clustering of the pairwise CDR RMSD matrix with optimal leaf ordering, which uses the
+whole distance matrix rather than a single projected axis. Set `color_by="value"` to color
+by a metric instead, or `color_by="index"` for plain list position.
 
 Drag to rotate. The controls below the viewer are live:
 
@@ -161,12 +169,11 @@ model confidence or DockQ; an NMR ensemble has neither, so this uses the
 **solvent-accessible surface area of the CDR loops**, a genuine conformational property
 that distinguishes compact paratope conformations from extended ones.
 
-In the 3D panel each model appears twice, at two heights. On the x-y floor it is drawn in
-the color its loops have in the overlay above, so the plane is a map of the ensemble: find
-a color here, then isolate that model in the viewer's legend. Raised onto the surface, the
-same model is colored by the value being fitted, on the surface's own scale, so it reads
-as an observation of the field. A faint gray stem joins the two. The 2D panel is the same
-floor projection, drawn over the contoured surface.
+Each point carries both readings at once: it is **filled** with its value on the surface's
+own color scale, and **ringed** in the color that model has in the 3D overlay. The fill
+says how the structure scores, the ring says which structure it is — find a ring color
+here, then isolate that model in the viewer's legend above. A white halo separates the two
+so a point whose value matches the surface beneath it stays visible.
 
 The surface is a Gaussian kernel average, not an interpolant: it cannot exceed the range
 of the observed values, and it is masked wherever no model lies close enough to support
@@ -224,25 +231,49 @@ plt.show()
 """),
 
 md("""
-## Applying this to predicted structures
+## Applying this to sampled CDR conformations
 
-The functions take any list of structures. For Boltz-2 output the pipeline notebook reads
-`results/analysis/samples.csv` and passes the loaded complexes together with a confidence
-column:
+Everything above takes any list of structures, so the same two views apply directly to the
+alternate CDR conformations produced by the resampling arms. After `04_evaluate.py` has
+written `results/analysis/samples.csv`:
 
 ```python
-structures = [load_complex(p, "A", "B") for p in samples["path"]]
+import pandas as pd
+from boltz_cdr.pdb_io import load_complex
+from boltz_cdr.yaml_io import ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID
+from _common import load_targets
+
+samples = pd.read_csv("results/analysis/samples.csv")
+selected = samples[samples.target == "8QF4"].reset_index(drop=True)
+
+target = load_targets(only=["8QF4"])[0]
+structures = [
+    load_complex(p, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID) for p in selected["path"]
+]
 annotation = target.annotation_for(structures[0].antibody.seq)
 
-view = ensemble_view(structures, annotation, values=samples["conf_iptm"].to_numpy())
+# Loops colored by structural similarity, so the spectrum orders the sampled
+# conformations; the legend labels each by the file it was predicted into.
+view = ensemble_view(structures, annotation, values=selected["conf_iptm"].to_numpy())
+view.show()
+
+# Confidence over conformational space, keyed to the overlay by the point rings.
 landscape, projection, _ = conformation_landscape(
-    structures, annotation, samples["conf_iptm"].to_numpy()
+    structures, annotation, selected["conf_iptm"].to_numpy()
 )
-fig, _ = plot_landscape(landscape, projection, point_colors=view.colors)
+plot_landscape(
+    landscape, projection, value_label="ipTM", point_colors=view.colors,
+)
 ```
 
-Legend labels then come from each prediction's file stem rather than a PDB model number,
-since that is the identifier a predicted structure carries.
+Swapping `conf_iptm` for `dockq` puts true accuracy over the same plane. The two surfaces
+side by side are the scorer question in visual form: where a confidence peak sits over a
+DockQ trough, the model is confidently wrong about that region of conformational space.
+
+Predicted complexes carry an antigen, so `ensemble_view` draws it as context and
+`align_on="antigen"` becomes available — superposing on the target rather than the
+framework, which puts rigid-body placement of the binder back into the picture instead of
+removing it.
 
 Complexes carry an antigen, so `ensemble_view` draws it as context and
 `align_on="antigen"` becomes available — superposing on the target instead of the

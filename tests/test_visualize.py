@@ -434,15 +434,18 @@ def test_default_labels_use_provenance(native_complex):
     assert ">8QF4</span>" in view.write_html()
 
 
-def test_member_colors_matches_the_view(native_complex):
-    """The landscape can only be keyed to the overlay if both agree on the colors."""
+def test_view_colors_are_exposed_for_keying_other_plots(native_complex):
+    """The landscape can only be keyed to the overlay if the colors are retrievable."""
     pytest.importorskip("py3Dmol")
     from boltz_cdr.visualize import ensemble_view, member_colors
 
     members, annotation = perturbed_ensemble(native_complex, n=6)
     view = ensemble_view(members, annotation)
-    assert view.colors == member_colors(len(members))
+    assert len(view.colors) == len(members)
     assert len(set(view.colors)) == len(members)
+    # Index coloring remains available and is what `member_colors` reproduces.
+    by_index = ensemble_view(members, annotation, color_by="index")
+    assert by_index.colors == member_colors(len(members))
 
 
 def test_member_colors_follows_values(native_complex):
@@ -466,72 +469,14 @@ def test_landscape_accepts_matching_point_colors(native_complex):
     landscape, projection, _ = conformation_landscape(members, annotation, values)
 
     fig, (_ax3d, ax2d) = plot_landscape(landscape, projection, point_colors=view.colors)
-    # The 2D scatter must carry the supplied colors rather than the value colormap.
-    scatters = [c for c in ax2d.collections if hasattr(c, "get_facecolor")]
-    assert scatters
-    import matplotlib.colors as mcolors
-    drawn = {mcolors.to_hex(c) for c in scatters[-1].get_facecolor()}
-    assert drawn == set(view.colors)
-    matplotlib.pyplot.close(fig)
-
-
-def test_identity_on_the_floor_value_on_the_surface(native_complex):
-    """With point_colors, the 3D panel draws each structure twice at different heights.
-
-    Once on the x-y floor in its overlay color, marking where the conformation sits in
-    the reduced space, and once raised onto the surface colored by the fitted value.
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.colors as mcolors
-
-    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
-
-    members, annotation = perturbed_ensemble(native_complex, n=6)
-    values = np.linspace(0.2, 0.9, 6)
-    landscape, projection, _ = conformation_landscape(members, annotation, values)
-    colors = member_colors(6)
-
-    fig, (ax3d, _ax2d) = plot_landscape(landscape, projection, point_colors=colors)
-    # mplot3d fills in a scatter's face colors only when the figure is drawn, and
-    # depth-sorts them as it does so; before that `get_facecolor()` is short.
     fig.canvas.draw()
-
-    scatters = [c for c in ax3d.collections if hasattr(c, "get_offsets")]
-    assert len(scatters) >= 2, "expected a floor projection and an elevated set"
-
-    drawn = [
-        {mcolors.to_hex(c) for c in sc.get_facecolor()}
-        for sc in scatters
-        if len(sc.get_facecolor())
-    ]
-    assert any(group == set(colors) for group in drawn), (
-        "one scatter must carry the overlay identity colors"
-    )
-    # The elevated points sit at the observed values, the floor below all of them.
-    zlim = ax3d.get_zlim()
-    assert zlim[0] < landscape.z.min()
-    matplotlib.pyplot.close(fig)
-
-
-def test_stems_connect_floor_to_surface(native_complex):
-    """A faint neutral line joins each floor marker to its elevated point."""
-    import matplotlib
-    matplotlib.use("Agg")
-
-    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
-
-    members, annotation = perturbed_ensemble(native_complex, n=5)
-    landscape, projection, _ = conformation_landscape(
-        members, annotation, np.linspace(0.3, 0.8, 5)
-    )
-    fig, (ax3d, _) = plot_landscape(
-        landscape, projection, point_colors=member_colors(5)
-    )
-    stems = ax3d.lines
-    assert len(stems) == len(members), "one stem per structure"
-    for stem in stems:
-        assert stem.get_alpha() < 0.6, "stems must be faint"
+    # Identity is carried by the point outlines; the fill carries the value.
+    import matplotlib.colors as mcolors
+    rings = set()
+    for collection in ax2d.collections:
+        if hasattr(collection, "get_edgecolor"):
+            rings |= {mcolors.to_hex(c) for c in collection.get_edgecolor()}
+    assert set(view.colors) <= rings
     matplotlib.pyplot.close(fig)
 
 
@@ -569,4 +514,118 @@ def test_axis_labels_present_on_both_panels(native_complex):
     assert ax3d.get_ylabel() == projection.axis_labels[1]
     assert ax3d.get_zlabel() == "score"
     assert ax2d.get_xlabel() == projection.axis_labels[0]
+    matplotlib.pyplot.close(fig)
+
+
+# ------------------------------------------------- similarity coloring and dark mode
+
+def test_similarity_order_puts_similar_structures_adjacent(native_complex):
+    """The point of seriation: neighbors in the order are neighbors in structure."""
+    from boltz_cdr.visualize import similarity_order
+
+    members, annotation = perturbed_ensemble(native_complex, n=12, scale=1.4, seed=7)
+    ensemble = superpose_cdr_ensemble(members, annotation)
+    distance = pairwise_rmsd(ensemble)
+    order = similarity_order(ensemble)
+
+    assert sorted(order.tolist()) == list(range(len(members))), "must be a permutation"
+    seriated = np.mean([distance[order[i], order[i + 1]] for i in range(len(order) - 1)])
+    overall = distance[~np.eye(len(distance), dtype=bool)].mean()
+    assert seriated < overall, "adjacent members should be closer than average"
+
+
+def test_similarity_order_handles_tiny_ensembles(native_complex):
+    from boltz_cdr.visualize import similarity_order
+
+    for n in (1, 2):
+        members, annotation = perturbed_ensemble(native_complex, n=n)
+        order = similarity_order(superpose_cdr_ensemble(members, annotation))
+        assert sorted(order.tolist()) == list(range(n))
+
+
+def test_similarity_colors_span_red_to_purple(native_complex):
+    from boltz_cdr.visualize import similarity_colors, similarity_order
+
+    members, annotation = perturbed_ensemble(native_complex, n=8, scale=1.2)
+    ensemble = superpose_cdr_ensemble(members, annotation)
+    colors = similarity_colors(ensemble)
+    order = similarity_order(ensemble)
+
+    assert len(colors) == len(members)
+    assert len(set(colors)) == len(members)
+    # First and last in the *similarity* order are the spectrum endpoints.
+    assert colors[order[0]] == "#ff0000"
+    assert colors[order[-1]] == "#8000ff"
+
+
+def test_color_by_modes(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=5)
+    values = np.linspace(0.2, 0.9, 5)
+
+    modes = {
+        mode: ensemble_view(members, annotation, color_by=mode, values=values).colors
+        for mode in ("similarity", "value", "index")
+    }
+    assert modes["similarity"] != modes["index"], "similarity must not be list order"
+    assert modes["value"] != modes["index"]
+    for colors in modes.values():
+        assert len(set(colors)) == len(members)
+
+
+def test_similarity_is_the_default(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view, similarity_colors
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    default = ensemble_view(members, annotation).colors
+    explicit = similarity_colors(superpose_cdr_ensemble(members, annotation))
+    assert default == explicit
+
+
+def test_unknown_color_by_rejected(native_complex):
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=3)
+    with pytest.raises(ValueError, match="color_by must be"):
+        ensemble_view(members, annotation, color_by="rainbow")
+
+
+def test_legend_text_is_readable_on_a_dark_background(native_complex):
+    """Notebook output is rendered against the host's theme; VSCode's is often dark."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    html = ensemble_view(*perturbed_ensemble(native_complex, n=3)).write_html()
+    assert "prefers-color-scheme: dark" in html
+    dark_block = html.split("prefers-color-scheme: dark")[1].split("}}")[0]
+    assert "#f0f0f0" in dark_block or "#fff" in dark_block.lower()
+
+
+def test_landscape_points_are_filled_by_value_and_ringed_by_identity(native_complex):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.colors as mcolors
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.2, 0.9, 6)
+    )
+    colors = member_colors(6)
+    fig, (ax3d, ax2d) = plot_landscape(landscape, projection, point_colors=colors)
+    fig.canvas.draw()
+
+    rings = set()
+    for collection in ax2d.collections:
+        if not hasattr(collection, "get_edgecolor"):
+            continue
+        rings |= {mcolors.to_hex(c) for c in collection.get_edgecolor()}
+    assert set(colors) <= rings, "identity colors must appear as point outlines"
+
+    assert not ax3d.lines, "the connecting stems should be gone"
     matplotlib.pyplot.close(fig)

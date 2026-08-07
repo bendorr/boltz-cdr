@@ -435,38 +435,20 @@ def plot_landscape(
         cmap=cmap, alpha=0.75, linewidth=0, antialiased=True, rstride=2, cstride=2,
     )
 
-    finite = landscape.grid_z[np.isfinite(landscape.grid_z)]
-    low = float(min(finite.min(), landscape.z.min())) if len(finite) else float(landscape.z.min())
-    high = float(max(finite.max(), landscape.z.max())) if len(finite) else float(landscape.z.max())
-    floor = low - 0.10 * max(high - low, 1e-9)
-    ax3d.set_zlim(floor, high)
-
     if point_colors is not None:
-        # Two readings, kept apart by height. On the floor, each structure sits at its
-        # position in the reduced conformational space, in the color its loops have in the
-        # 3D overlay — the plane is a map of the ensemble. Raised onto the surface, the
-        # same structures are colored by the value being fitted, on the surface's own
-        # scale, so they read as observations of the field rather than as identities.
-        # A faint neutral stem ties each pair together without competing with either.
-        for x, y, z in zip(
-            landscape.xy[:, 0], landscape.xy[:, 1], landscape.z, strict=True
-        ):
-            ax3d.plot([x, x], [y, y], [floor, z], color="0.55", lw=0.6, alpha=0.4)
-        ax3d.scatter(
-            landscape.xy[:, 0], landscape.xy[:, 1], floor,
-            c=point_colors, s=30, edgecolor="black", linewidth=0.4, depthshade=False,
-            label=f"{len(landscape.z)} structures",
-        )
         ax3d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-            c=landscape.z, cmap=cmap, vmin=low, vmax=high,
-            s=34, edgecolor="black", linewidth=0.5, depthshade=False,
+            c="none", edgecolor="white", linewidth=2.6, s=66, depthshade=False,
         )
-    else:
-        ax3d.scatter(
-            landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-            c="black", s=22, depthshade=False, label=f"{len(landscape.z)} structures",
-        )
+    ax3d.scatter(
+        landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
+        c=landscape.z if point_colors is not None else "black",
+        cmap=cmap if point_colors is not None else None,
+        s=42 if point_colors is not None else 22,
+        edgecolor=point_colors if point_colors is not None else "none",
+        linewidth=1.6 if point_colors is not None else 0,
+        depthshade=False, label=f"{len(landscape.z)} structures",
+    )
 
     ax3d.set_xlabel(projection.axis_labels[0], fontsize=8)
     ax3d.set_ylabel(projection.axis_labels[1], fontsize=8)
@@ -484,15 +466,20 @@ def plot_landscape(
         levels=18, colors="white", linewidths=0.4, alpha=0.5,
     )
     if point_colors is not None:
+        # A white halo outside the identity ring. Without it a point whose value matches
+        # the surface beneath it — which is the common case when the fit is good — has no
+        # visible fill boundary and reads as an empty ring.
         ax2d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1],
-            c=point_colors, edgecolor="black", linewidth=0.7, s=72, zorder=3,
+            c="none", edgecolor="white", linewidth=3.4, s=124, zorder=2,
         )
-    else:
-        ax2d.scatter(
-            landscape.xy[:, 0], landscape.xy[:, 1],
-            c=landscape.z, cmap=cmap, edgecolor="black", linewidth=0.6, s=60, zorder=3,
-        )
+    ax2d.scatter(
+        landscape.xy[:, 0], landscape.xy[:, 1],
+        c=landscape.z, cmap=cmap,
+        edgecolor=point_colors if point_colors is not None else "black",
+        linewidth=2.0 if point_colors is not None else 0.6,
+        s=95 if point_colors is not None else 60, zorder=3,
+    )
     if labels is not None:
         for (x, y), label in zip(landscape.xy, labels, strict=True):
             ax2d.annotate(str(label), (x, y), fontsize=6, xytext=(3, 3),
@@ -630,6 +617,7 @@ def ensemble_view(
     height: int = 600,
     zoom_padding: float = 4.0,
     max_overlay: int | None = None,
+    color_by: str = "similarity",
     side_chains: bool = True,
     color_side_chains_by_element: bool = True,
     show_context: bool = True,
@@ -645,6 +633,13 @@ def ensemble_view(
 
     Parameters
     ----------
+    color_by
+        ``"similarity"`` (the default) assigns a red-to-purple rainbow along an ordering
+        of the members by structural similarity, so that similarly-shaped loops take
+        similar colors and the spectrum itself is a coordinate through conformational
+        space. ``"value"`` colors by `values` on a sequential scale. ``"index"`` colors
+        by position in the list, which carries no structural meaning and is offered only
+        for reproducing an existing figure.
     side_chains
         Draw side-chain atoms as sticks in addition to the backbone. Side chains are what
         actually contact the antigen, but they clutter an overlay of many members, so this
@@ -697,7 +692,7 @@ def ensemble_view(
     if max_overlay is not None and len(order) > max_overlay:
         order = list(np.linspace(0, len(structures) - 1, max_overlay).astype(int))
 
-    colors = _value_colors(values, order)
+    colors = _resolve_colors(color_by, ensemble, order, values)
     reference_ab = _antibody(structures[0])
     for slot, index in enumerate(order):
         # Rebuild each member in the reference frame so the overlay is meaningful.
@@ -738,6 +733,19 @@ def ensemble_view(
         width=width,
     )
     return EnsembleView(html, view, len(order), colors=colors, labels=labels)
+
+
+def _resolve_colors(color_by: str, ensemble, order, values) -> list[str]:
+    """Per-member colors for the requested scheme."""
+    if color_by == "similarity":
+        everyone = similarity_colors(ensemble)
+        return [everyone[i] for i in order]
+    if color_by == "value":
+        return _value_colors(values, order)
+    if color_by == "index":
+        return _value_colors(None, order)
+    msg = f"color_by must be 'similarity', 'value' or 'index', got {color_by!r}"
+    raise ValueError(msg)
 
 
 def _member_styles(color: str, side_chains: bool, by_element: bool) -> list[dict]:
@@ -805,8 +813,18 @@ def _view_with_controls(
 
     controls = f"""
 <style>
+/* Notebook output is rendered against whatever background the host uses, and VSCode's
+   dark theme is common. Inheriting the host's text color is unreliable inside the
+   output frame, so the panel states its own and flips on the dark-mode media query. */
 .bc-wrap{{font:11.5px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   max-width:{width}px;margin-top:4px;color:#222}}
+@media (prefers-color-scheme: dark) {{
+  .bc-wrap{{color:#f0f0f0}}
+  .bc-opts{{border-bottom-color:#4a4a4a}}
+  .bc-val{{color:#b0b0b0}}
+  .bc-btn{{background:#3a3a3a;border-color:#5a5a5a;color:#f0f0f0}}
+  .bc-swatch{{border-color:#ffffff59}}
+}}
 .bc-opts{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:3px 2px;
   border-bottom:1px solid #e3e3e3}}
 .bc-opts label{{display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap}}
@@ -817,7 +835,7 @@ def _view_with_controls(
 .bc-row input{{margin:0;flex:0 0 auto}}
 .bc-swatch{{width:10px;height:10px;border-radius:2px;border:1px solid #00000026;
   flex:0 0 auto}}
-.bc-name{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.bc-name{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}}
 .bc-val{{color:#888;font-variant-numeric:tabular-nums;margin-left:auto;padding-left:4px}}
 .bc-btn{{font:inherit;padding:0 6px;border:1px solid #ccc;border-radius:3px;
   background:#fafafa;cursor:pointer;line-height:1.6}}
@@ -893,6 +911,53 @@ var BC{uid} = (function() {{
 </script>
 """
     return base + controls
+
+
+def similarity_order(ensemble: EnsembleCoordinates) -> np.ndarray:
+    """Order members so that structurally similar conformations are adjacent.
+
+    Seriation by hierarchical clustering of the pairwise CDR RMSD matrix, with optimal
+    leaf ordering. A one-dimensional projection such as PC1 would also give an order, but
+    it captures only the dominant mode — typically a third of the variance in a
+    prediction ensemble — so two loops that differ mainly along later modes would land
+    next to each other. The dendrogram uses the whole distance matrix, and optimal leaf
+    ordering then chooses the flip at each node that puts the most similar structures side
+    by side.
+    """
+    n = len(ensemble.features)
+    if n < 3:  # noqa: PLR2004
+        return np.arange(n)
+
+    from scipy.cluster.hierarchy import leaves_list, linkage, optimal_leaf_ordering
+    from scipy.spatial.distance import squareform
+
+    distance = pairwise_rmsd(ensemble)
+    condensed = squareform(np.nan_to_num(distance, nan=0.0), checks=False)
+    tree = linkage(condensed, method="average")
+    return np.asarray(leaves_list(optimal_leaf_ordering(tree, condensed)))
+
+
+def similarity_colors(
+    ensemble: EnsembleCoordinates, *, cmap: str = "rainbow_r"
+) -> list[str]:
+    """Rainbow colors assigned along the structural-similarity ordering, red to purple.
+
+    Position in the spectrum then means something: loops of a similar shape are a similar
+    color, and a sweep from red to purple is a sweep through conformational space. With
+    colors assigned by list position instead, adjacent colors say nothing about the
+    structures, which is actively misleading in an overlay of twenty loops.
+    """
+    import matplotlib.cm as mpl_cm
+    from matplotlib.colors import to_hex
+
+    order = similarity_order(ensemble)
+    n = len(order)
+    palette = mpl_cm.get_cmap(cmap) if hasattr(mpl_cm, "get_cmap") else getattr(mpl_cm, cmap)
+
+    colors = [""] * n
+    for rank, member in enumerate(order):
+        colors[int(member)] = to_hex(palette(rank / max(n - 1, 1)))
+    return colors
 
 
 def member_colors(n_members: int, values: np.ndarray | None = None) -> list[str]:
