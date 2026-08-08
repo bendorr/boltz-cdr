@@ -92,8 +92,12 @@ def _overlay_panel(work: pathlib.Path, members, annotation, colors, subset) -> p
     return out
 
 
-def _landscape_panels(work: pathlib.Path, members, annotation, colors) -> pathlib.Path:
-    """Both landscape panels, with every title and the key removed."""
+def _landscape_panels(work: pathlib.Path, members, annotation, colors, subset) -> pathlib.Path:
+    """Both landscape panels, with every title and the key removed.
+
+    The three members drawn with side chains in the left panel are numbered here, so the
+    banner reads across: a labelled point is one of the loop sets beside it.
+    """
     import matplotlib.pyplot as plt
 
     cdr_atoms = members[0].atom_mask_for_residues(annotation.all_indices)
@@ -103,10 +107,15 @@ def _landscape_panels(work: pathlib.Path, members, annotation, colors) -> pathli
     landscape, projection, _ = conformation_landscape(
         members, annotation, values, method="pca"
     )
+    callouts = [""] * len(members)
+    for number, index in enumerate(subset, start=1):
+        callouts[index] = str(number)
+
     fig, (ax3d, ax2d) = plot_landscape(
         landscape, projection,
         value_label="CDR solvent-accessible surface (A$^2$)",
         title=None,                      # no suptitle
+        labels=callouts,
         point_colors=colors,
     )
     ax2d.set_title("")                   # no panel title
@@ -117,7 +126,9 @@ def _landscape_panels(work: pathlib.Path, members, annotation, colors) -> pathli
     # together for a banner the z-label runs into the contour panel's y-label. The colorbar
     # keeps the name; the surface keeps its numbers.
     ax3d.set_zlabel("")
-    ax3d.set_box_aspect(None, zoom=0.95)
+    # Dropping that label lets tight_layout close the gap between the panels, which puts the
+    # z tick numbers into the contour panel's y-label. Pulling the cube in reopens it.
+    ax3d.set_box_aspect(None, zoom=0.84)
     fig.tight_layout()
 
     out = work / "landscape.png"
@@ -127,9 +138,17 @@ def _landscape_panels(work: pathlib.Path, members, annotation, colors) -> pathli
     return out
 
 
-def _compose(overlay: pathlib.Path, landscape: pathlib.Path, out: pathlib.Path) -> None:
-    """One row, equal heights, widths in proportion to each panel's own aspect ratio."""
+def _compose(overlay: pathlib.Path, landscape: pathlib.Path, out: pathlib.Path,
+             key_entries: list[tuple[str, str]]) -> None:
+    """One row, equal heights, widths in proportion to each panel's own aspect ratio.
+
+    On an opaque white card rather than a transparent background: the panels are three
+    separate renders, and a shared ground is what makes them read as one figure instead of
+    three images that happen to be adjacent. It also keeps the ray-traced black outlines
+    legible under a dark GitHub theme.
+    """
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     from PIL import Image
 
     images = []
@@ -143,13 +162,27 @@ def _compose(overlay: pathlib.Path, landscape: pathlib.Path, out: pathlib.Path) 
         1, 2, figsize=(height * sum(aspects) * 1.02, height),
         gridspec_kw={"width_ratios": aspects, "wspace": 0.02},
     )
+    fig.patch.set_facecolor("white")
     for ax, image in zip(axes, images, strict=True):
         ax.imshow(image)
         ax.set_axis_off()
-    fig.subplots_adjust(left=0.004, right=0.996, top=0.99, bottom=0.01)
+
+    # Which loop set is which, in the same numbering the landscape puts on its points.
+    axes[0].legend(
+        handles=[
+            Line2D([], [], marker="o", linestyle="none", markersize=9,
+                   markerfacecolor=color, markeredgecolor="0.35", markeredgewidth=1.0,
+                   label=label)
+            for color, label in key_entries
+        ],
+        loc="lower right", fontsize=13, frameon=True, framealpha=0.92,
+        edgecolor="0.8", handletextpad=0.5, borderpad=0.4, labelspacing=0.3,
+    )
+
+    fig.subplots_adjust(left=0.006, right=0.994, top=0.98, bottom=0.02)
     # A README image renders about 900 px wide, so resolution past ~2400 px buys nothing
     # and costs a megabyte in the repository.
-    fig.savefig(out, dpi=115, transparent=True, pil_kwargs={"optimize": True})
+    fig.savefig(out, dpi=115, facecolor="white", pil_kwargs={"optimize": True})
     plt.close(fig)
 
 
@@ -169,9 +202,15 @@ def main() -> int:
     work = pathlib.Path(tempfile.mkdtemp(prefix="readme-banner-"))
     try:
         overlay = _overlay_panel(work, members, annotation, colors, subset)
-        landscape = _landscape_panels(work, members, annotation, colors)
+        landscape = _landscape_panels(work, members, annotation, colors, subset)
         ASSETS.mkdir(exist_ok=True)
-        _compose(overlay, landscape, OUT)
+        _compose(
+            overlay, landscape, OUT,
+            key_entries=[
+                (colors[index], f"{number}  ({members[index].model_id})")
+                for number, index in enumerate(subset, start=1)
+            ],
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

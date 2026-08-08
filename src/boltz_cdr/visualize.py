@@ -508,6 +508,9 @@ def plot_landscape(
     ax3d.set_zlabel(value_label, fontsize=FONT["label"], labelpad=30)
     ax3d.view_init(elev=elev, azim=azim)
     ax3d.tick_params(labelsize=FONT["tick"], pad=2)
+    # The z ticks are the only ones drawn against a vertical edge of the cube, so at the
+    # default pad they sit on the axis line rather than beside it.
+    ax3d.tick_params(axis="z", pad=10)
     ax3d.locator_params(nbins=4)
     ax3d.set_box_aspect(None, zoom=0.80)
     if point_colors is None:
