@@ -547,6 +547,44 @@ def test_short_axis_keeps_labels_that_are_already_short():
     assert _short_axis("PC2") == "PC2"
 
 
+def test_extreme_members_spans_the_similarity_order(native_complex):
+    """The overlay still and the landscape callouts must name the same structures."""
+    from boltz_cdr.visualize import extreme_members, similarity_order
+
+    members, annotation = perturbed_ensemble(native_complex, n=8, scale=1.4, seed=3)
+    ensemble = superpose_cdr_ensemble(members, annotation)
+    order = list(similarity_order(ensemble))
+
+    picked = extreme_members(ensemble)
+    assert len(picked) == 3
+    assert picked[0] == order[0] and picked[-1] == order[-1], "both ends of the order"
+    assert len(set(picked)) == 3, "three distinct structures"
+    assert extreme_members(ensemble) == picked, "the pick has to be deterministic"
+
+    small, small_annotation = perturbed_ensemble(native_complex, n=2)
+    assert len(extreme_members(superpose_cdr_ensemble(small, small_annotation))) <= 2
+
+
+def test_landscape_labels_only_the_points_that_carry_one(native_complex):
+    """Empty labels are how a caller marks a few points instead of all of them."""
+    import matplotlib
+    matplotlib.use("Agg")
+
+    from boltz_cdr.visualize import conformation_landscape, member_colors, plot_landscape
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    landscape, projection, _ = conformation_landscape(
+        members, annotation, np.linspace(0.2, 0.9, 6)
+    )
+    labels = ["", "1", "", "", "2", ""]
+    fig, (_ax3d, ax2d) = plot_landscape(
+        landscape, projection, labels=labels, point_colors=member_colors(6)
+    )
+    drawn = sorted(t.get_text() for t in ax2d.texts)
+    assert drawn == ["1", "2"], f"one annotation per non-empty label, got {drawn}"
+    matplotlib.pyplot.close(fig)
+
+
 def test_landscape_type_is_sized_for_print():
     """Every piece of text on the landscape has to survive reduction to column width."""
     from boltz_cdr.visualize import FONT

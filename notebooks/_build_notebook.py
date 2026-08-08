@@ -526,7 +526,7 @@ Each point is **filled** with its color from the overlay above (run that cell fi
 """),
 code("""
 import pathlib
-from boltz_cdr.visualize import conformation_landscape, plot_landscape
+from boltz_cdr.visualize import conformation_landscape, extreme_members, plot_landscape
 
 Z_COLUMN = "conf_iptm"     # try "dockq", "shape_complementarity", "conf_complex_plddt"
 if EXAMPLE_ENSEMBLE:
@@ -538,11 +538,20 @@ landscape, projection, coords = conformation_landscape(
     selected[Z_COLUMN].to_numpy(),
     method="pca",          # or "mds"
 )
+
+# Number the three structures the overlay above singles out — the two most different loop
+# conformations and one between them — so a point here can be matched to a loop there.
+# Both figures call `extreme_members`, so 1, 2 and 3 mean the same structures in each.
+callouts = [""] * len(structures)
+for number, index in enumerate(extreme_members(coords), start=1):
+    callouts[index] = str(number)
+
 fig, _ = plot_landscape(
     landscape,
     projection,
     value_label=Z_COLUMN,
     title=f"{VIEW_TARGET} — CDR conformation landscape ({len(structures)} structures)",
+    labels=callouts,
     # Fill each point with the color its loops have in the overlay above, so a feature here
     # can be traced to a structure there. Only possible when the overlay drew every
     # member — raise `max_overlay` if it thinned the ensemble.

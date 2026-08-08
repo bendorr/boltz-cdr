@@ -79,7 +79,7 @@ plt.rcParams.update({
 from boltz_cdr.pdb_io import fetch_cif, load_models
 from boltz_cdr.cdr import annotate_vhh
 from boltz_cdr.visualize import (
-    superpose_cdr_ensemble, pairwise_rmsd,
+    superpose_cdr_ensemble, pairwise_rmsd, extreme_members,
     conformation_landscape, plot_landscape, ensemble_view,
 )
 print("boltz_cdr imported from", (root / "src").name + "/")
@@ -213,10 +213,18 @@ print(f"CDR solvent-accessible surface: {paratope_sasa.min():.0f}"
 landscape, projection, coords = conformation_landscape(
     models, annotation, paratope_sasa, method="pca"
 )
+
+# The three models the overlay above draws with their side chains, numbered so a point here
+# can be matched to a loop there. Both figures pick them with `extreme_members`.
+callouts = [""] * len(models)
+for number, index in enumerate(extreme_members(coords), start=1):
+    callouts[index] = str(number)
+
 fig, _ = plot_landscape(
     landscape, projection,
     value_label="CDR solvent-accessible surface (A$^2$)",
     title=f"{PDB_ID} — {len(models)}-model NMR ensemble",
+    labels=callouts,
     point_colors=view.colors,     # same color each model has in the 3D overlay
 )
 plt.show()

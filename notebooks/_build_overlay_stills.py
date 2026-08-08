@@ -173,13 +173,17 @@ def _script(
     return "\n".join(lines) + "\n"
 
 
-def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathlib.Path):
-    """Lay the two ray-traced panels side by side and label them.
+def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathlib.Path,
+             key_entries: list[tuple[str, str]]):
+    """Lay the two ray-traced panels side by side, label them, and key the subset panel.
 
     Labelled because the still is what a GitHub reader sees in place of the viewer, and it
-    has to say so itself — the caption is the only thing telling them the cell is live.
+    has to say so itself — the caption is the only thing telling them the cell is live. The
+    key names the three singled-out members 1-3, which are the numbers the conformation
+    landscape puts on the same three structures.
     """
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
     from PIL import Image
 
     fig, axes = plt.subplots(1, 2, figsize=(15, 6.4))
@@ -190,6 +194,17 @@ def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathl
         ax.imshow(panel.crop(panel.getbbox()))
         ax.set_axis_off()
         ax.set_title(titles[key], fontsize=19, color="#4a4a4a")
+
+    axes[1].legend(
+        handles=[
+            Line2D([], [], marker="o", linestyle="none", markersize=15,
+                   markerfacecolor=color, markeredgecolor="0.35", markeredgewidth=1.2,
+                   label=label)
+            for color, label in key_entries
+        ],
+        loc="lower right", fontsize=17, frameon=True, framealpha=0.9,
+        edgecolor="0.8", handletextpad=0.6, borderpad=0.7, labelspacing=0.5,
+    )
     fig.suptitle(
         "static preview of the interactive viewer — run the cell to rotate it, "
         "toggle side chains, and isolate members",
@@ -204,7 +219,7 @@ def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathl
 
 
 def render(name: str, spec: dict) -> pathlib.Path:
-    from boltz_cdr.visualize import similarity_order
+    from boltz_cdr.visualize import extreme_members
 
     members = spec["loader"]()
     annotation = annotate_vhh(members[0].seq)
@@ -215,10 +230,10 @@ def render(name: str, spec: dict) -> pathlib.Path:
     ensemble = superpose_cdr_ensemble(members, annotation)
     loop_residues = ensemble.residue_indices
 
-    # Ends and middle of the similarity order: the two most different conformations in the
-    # ensemble and one between them, rather than three arbitrary members.
-    order = list(similarity_order(ensemble))
-    subset = [order[0], order[len(order) // 2], order[-1]]
+    # The two most different conformations in the ensemble and one between them, rather than
+    # three arbitrary members. The landscape cell calls the same function, so its numbered
+    # points are these structures.
+    subset = extreme_members(ensemble)
 
     work = pathlib.Path(tempfile.mkdtemp(prefix="overlay-still-"))
     try:
@@ -246,15 +261,21 @@ def render(name: str, spec: dict) -> pathlib.Path:
             {
                 # Two lines: at print-sized type these do not fit a panel on one.
                 "all": f"all {len(members)} members\nCDR loops on the shared framework",
-                "subset": "3 members\nthe ensemble's extremes, with side chains",
+                "subset": f"{len(subset)} members\nthe ensemble's extremes, with side chains",
             },
             out,
+            # Numbered 1..k for the landscape to match, with the member's own name after it
+            # so the number is never mistaken for a deposited model number.
+            key_entries=[
+                (colors[index], f"{number}  ({members[index].model_id})")
+                for number, index in enumerate(subset, start=1)
+            ],
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
     print(f"{out}  ({out.stat().st_size / 1024:.0f} KB)  {len(members)} members, "
-          f"subset {[int(i) for i in subset]}  <- {', '.join(spec['notebooks'])}")
+          f"numbered {[int(i) for i in subset]}  <- {', '.join(spec['notebooks'])}")
     return out
 
 

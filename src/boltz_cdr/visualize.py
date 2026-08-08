@@ -414,6 +414,7 @@ FONT = {
     "legend": 18,
     "key": 18,
     "annotation": 12,
+    "callout": 22,      # the numbers tying points back to the structural overlay
 }
 
 
@@ -537,9 +538,18 @@ def plot_landscape(
         s=165 if point_colors is not None else 95, zorder=3,
     )
     if labels is not None:
+        from matplotlib import patheffects
+
         for (x, y), label in zip(landscape.xy, labels, strict=True):
-            ax2d.annotate(str(label), (x, y), fontsize=FONT["annotation"], xytext=(5, 5),
-                          textcoords="offset points")
+            if not str(label):
+                continue    # an empty label is how a caller marks only a few points
+            ax2d.annotate(
+                str(label), (x, y), fontsize=FONT["callout"], fontweight="bold",
+                xytext=(12, 10), textcoords="offset points", zorder=4,
+                # A white stroke, because a callout has to stay readable wherever on the
+                # contour surface its point happens to land.
+                path_effects=[patheffects.withStroke(linewidth=3.5, foreground="white")],
+            )
     ax2d.set_xlabel(projection.axis_labels[0], fontsize=FONT["label"])
     ax2d.set_ylabel(projection.axis_labels[1], fontsize=FONT["label"])
     ax2d.tick_params(labelsize=FONT["tick"])
@@ -1035,6 +1045,21 @@ def similarity_order(ensemble: EnsembleCoordinates) -> np.ndarray:
     condensed = squareform(np.nan_to_num(distance, nan=0.0), checks=False)
     tree = linkage(condensed, method="average")
     return np.asarray(leaves_list(optimal_leaf_ordering(tree, condensed)))
+
+
+def extreme_members(ensemble: EnsembleCoordinates, k: int = 3) -> list[int]:
+    """`k` members spanning the ensemble: both ends of the similarity order, and between.
+
+    A handful of conformations worth singling out — the two most different loop shapes and
+    something in between, rather than an arbitrary few. Both figures call this, so the
+    members drawn with their side chains in the structural overlay are the same ones
+    numbered on the conformation landscape, and the two pictures can be read together.
+    """
+    order = list(similarity_order(ensemble))
+    if k >= len(order):
+        return order
+    picked = [order[round(t)] for t in np.linspace(0, len(order) - 1, k)]
+    return list(dict.fromkeys(picked))   # a tiny ensemble can pick the same member twice
 
 
 def similarity_colors(
