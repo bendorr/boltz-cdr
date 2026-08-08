@@ -338,9 +338,8 @@ composite scorer weights — has been tuned against them. Control arms exist for
 template conditioning in general, and `baseline_steered` runs Boltz-2's own potentials, so
 it cannot be attributed to steering in general.
 
-Boltz-2 inference has not been run against this code; stages 0/A/B need a GPU. Every
-component that does not require model weights is executed and tested, including the runtime
-patch and the vendored sampler, which run against a stub Boltz on CPU.
+Every component that does not require model weights is executed and tested, including the
+runtime patch and the vendored sampler, which run against a stub Boltz on CPU.
 
 ---
 
