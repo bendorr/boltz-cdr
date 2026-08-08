@@ -4,7 +4,7 @@ The Colab notebooks are GPU runners: nothing else in them can be executed here, 
 outputs are meant to be produced by whoever runs them. The visualization section is the one
 part worth committing already drawn, so section 9 is not a pair of blank cells in the
 repository. This runs exactly those cells — the loader, the structural overlay and the
-conformation landscape — with `EXAMPLE_ENSEMBLE` forced on, so they draw the ten committed
+conformation landscape — with `EXAMPLE_ENSEMBLE` forced on, so they draw the twenty committed
 NMR models instead of predictions that do not exist yet. Both notebooks are handled because
 they are built from one set of cells and differ only in their prose.
 
@@ -119,7 +119,7 @@ def placeholders(notebook: pathlib.Path) -> None:
 
 
 def main() -> int:
-    example = pathlib.Path("data/examples/9kfw_10models.pdb.gz")
+    example = pathlib.Path("data/examples/9kfw_20models.pdb.gz")
     if not example.exists():
         print(f"{example} not found; run notebooks/_build_example_ensemble.py first")
         return 1

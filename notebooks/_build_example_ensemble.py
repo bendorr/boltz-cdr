@@ -1,15 +1,15 @@
-"""Write the 10-model example ensemble the Colab notebook falls back to.
+"""Write the example ensemble the Colab notebook falls back to.
 
 `colab_boltz_cdr.ipynb` is committed with its two visualization cells already executed, so
 the figures are visible in the repository without a GPU, a Boltz-2 run, or a Colab session.
 Those placeholder figures need structures that ship with the repository, which is what this
-writes: ten models sampled across the 20-model NMR ensemble of 9KFW, the same entry the
-CPU demo notebook uses.
+writes: the complete 20-model NMR ensemble of 9KFW, the same entry and the same ensemble the
+CPU demo notebook uses, so the two notebooks illustrate the same structures.
 
-Ten rather than twenty, and gzipped PDB rather than mmCIF, because it is committed: the
-whole point is that a clone can redraw the figures, so the file has to be small enough to
-carry. Every other model is taken rather than the first ten, so the slice spans the
-deposited ensemble instead of one end of it.
+All twenty models rather than a slice, because twenty is the whole deposition — and it is
+also the ceiling: no nanobody or VHH solution-NMR entry in the PDB deposits more than twenty
+models. Gzipped PDB rather than mmCIF because the file is committed, and a clone has to be
+able to redraw the figures without fetching anything.
 
 Usage (from the repository root):
     python notebooks/_build_example_ensemble.py
@@ -26,9 +26,9 @@ import gemmi
 from boltz_cdr.pdb_io import fetch_cif, load_models
 
 PDB_ID = "9KFW"
-STRIDE = 2          # every other model of the deposited 20
-N_MODELS = 10
-OUT = pathlib.Path("data/examples/9kfw_10models.pdb.gz")
+STRIDE = 1
+N_MODELS = 20       # the whole deposition
+OUT = pathlib.Path("data/examples/9kfw_20models.pdb.gz")
 
 
 def main() -> int:

@@ -2,10 +2,17 @@
 
 **Concentrating structural sampling where antibody-structure models are most uncertain.**
 
+![CDR loops of three ensemble members over a shared framework, beside the same ensemble's conformation landscape as a surface and as a contour map](assets/readme_banner.png)
+
 Tools for generating and ranking antibody–antigen interface ensembles with
 [Boltz-2](https://github.com/jwohlwend/boltz): CDR-selective diffusion resampling,
 template-masked loop re-prediction, a differentiable CDR–epitope guidance potential, and a
 GPU-free evaluation suite for scoring the results.
+
+*CDR loops of three members of a 20-model NMR ensemble, superposed on a shared framework,
+beside that ensemble's conformation landscape — the loops projected to two dimensions with
+a per-structure quantity smoothed over the plane. Both views are drawn by
+`boltz_cdr.visualize`, and both notebooks reproduce them.*
 
 ---
 

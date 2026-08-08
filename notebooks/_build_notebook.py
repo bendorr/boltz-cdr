@@ -397,7 +397,7 @@ from _common import load_targets
 # True to redraw those placeholders from the ten committed NMR models, which needs no GPU,
 # no Boltz-2 weights and no results/ directory.
 EXAMPLE_ENSEMBLE = False
-EXAMPLE_PATH = "data/examples/9kfw_10models.pdb.gz"
+EXAMPLE_PATH = "data/examples/9kfw_20models.pdb.gz"
 
 VIEW_TARGET = DEMO_TARGET
 VIEW_ARMS = None          # e.g. ["armA", "armB_guided"]; None uses every arm

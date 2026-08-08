@@ -36,17 +36,17 @@ from boltz_cdr.visualize import (
 
 ASSETS = pathlib.Path("assets")
 
-# One entry per distinct overlay scene. `notebooks` lists the notebooks whose overlay cell
-# draws it — the two Colab notebooks share a scene because they share their cells — and
-# `loader` returns the same members those cells draw.
+# One entry per distinct overlay scene. All three notebooks now draw the same one: the demo
+# fetches 9KFW from RCSB and the Colab notebooks read the copy committed under data/examples,
+# which is the same twenty models, so a single still stands in for every overlay cell.
 STILLS = {
     "overlay_9kfw_20models.png": {
-        "notebooks": ["cdr_ensemble_visualization.ipynb"],
+        "notebooks": [
+            "cdr_ensemble_visualization.ipynb",
+            "colab_boltz_cdr.ipynb",
+            "colab_boltz_cdr_long.ipynb",
+        ],
         "loader": lambda: load_models(fetch_cif("9KFW", "data/pdb")),
-    },
-    "overlay_9kfw_10models.png": {
-        "notebooks": ["colab_boltz_cdr.ipynb", "colab_boltz_cdr_long.ipynb"],
-        "loader": lambda: load_models("data/examples/9kfw_10models.pdb.gz"),
     },
 }
 
@@ -195,15 +195,17 @@ def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathl
         ax.set_axis_off()
         ax.set_title(titles[key], fontsize=19, color="#4a4a4a")
 
+    # Well under the panel title: the key identifies the members, it is not competing with
+    # the caption for attention.
     axes[1].legend(
         handles=[
-            Line2D([], [], marker="o", linestyle="none", markersize=15,
-                   markerfacecolor=color, markeredgecolor="0.35", markeredgewidth=1.2,
+            Line2D([], [], marker="o", linestyle="none", markersize=8.5,
+                   markerfacecolor=color, markeredgecolor="0.35", markeredgewidth=1.0,
                    label=label)
             for color, label in key_entries
         ],
-        loc="lower right", fontsize=17, frameon=True, framealpha=0.9,
-        edgecolor="0.8", handletextpad=0.6, borderpad=0.7, labelspacing=0.5,
+        loc="lower right", fontsize=13, frameon=True, framealpha=0.9,
+        edgecolor="0.8", handletextpad=0.5, borderpad=0.4, labelspacing=0.3,
     )
     fig.suptitle(
         "static preview of the interactive viewer — run the cell to rotate it, "

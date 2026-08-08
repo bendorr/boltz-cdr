@@ -15,7 +15,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 COLAB = ROOT / "notebooks" / "colab_boltz_cdr.ipynb"
 DEMO = ROOT / "notebooks" / "cdr_ensemble_visualization.ipynb"
-EXAMPLE = ROOT / "data" / "examples" / "9kfw_10models.pdb.gz"
+EXAMPLE = ROOT / "data" / "examples" / "9kfw_20models.pdb.gz"
 NOTEBOOKS = [COLAB, DEMO]
 
 # The long-form Colab notebook is gitignored working notes, so it is absent from a clone.
@@ -39,7 +39,7 @@ def test_example_ensemble_ships_with_the_repository():
     assert EXAMPLE.stat().st_size < 1_000_000, "an example that big does not belong in git"
 
     text = gzip.decompress(EXAMPLE.read_bytes()).decode()
-    assert text.count("\nMODEL ") == 10, "the example is a 10-model ensemble"
+    assert text.count("\nMODEL ") == 20, "the example is the complete 20-model ensemble"
 
 
 @pytest.mark.parametrize("path", NOTEBOOKS)
