@@ -104,6 +104,13 @@ code("""
 !pip install -q -r requirements-gpu.txt
 # Boltz weights (~3 GB) download to ~/.boltz on the first prediction, not now.
 #
+# pip ends this cell with a wall of red "dependency conflicts" naming numpy, scipy, jax,
+# opencv, rasterio and friends. Expected, and not a problem: boltz 2.2.1 hard-pins
+# numpy<2.0, scipy==1.13.1, requests==2.32.3 and click==8.1.7, so pip installs those and
+# then reports that Colab's preinstalled scientific stack wanted newer ones. Nothing in this
+# pipeline imports the packages being complained about. The install itself succeeded — the
+# lines above it are wheels being built.
+#
 # If Colab asks to restart the session after this — it does when pip replaces a package it
 # had preloaded, usually torch or numpy — restart, then re-run from the clone cell above.
 # The clone survives the restart, so that is two quick cells, not a re-download.

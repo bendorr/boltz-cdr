@@ -602,7 +602,7 @@ def _point_key(fig, point_colors: list[str], cmap: str, value_label: str) -> Non
     fig.legend(
         [fills, rings],
         [f"fill: which model — as in the structural overlay ({n} models)",
-         f"ring: {value_label} — on the surface's own scale"],
+         f"ring: {value_label}"],
         handler_map={tuple: HandlerTuple(ndivide=None, pad=0.45)},
         loc="lower center", ncol=2, fontsize=FONT["key"], handlelength=3.4,
         handletextpad=0.9, columnspacing=3.0, borderaxespad=0.4, frameon=False,
