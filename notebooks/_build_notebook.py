@@ -110,10 +110,22 @@ code("""
 # then reports that Colab's preinstalled scientific stack wanted newer ones. Nothing in this
 # pipeline imports the packages being complained about. The install itself succeeded — the
 # lines above it are wheels being built.
-#
-# If Colab asks to restart the session after this — it does when pip replaces a package it
-# had preloaded, usually torch or numpy — restart, then re-run from the clone cell above.
-# The clone survives the restart, so that is two quick cells, not a re-download.
+
+# The conflict that does bite: this kernel started with Colab's numpy 2.x already loaded,
+# and one process cannot hold both that and the numpy<2 boltz pins. Every `!python` cell
+# below is a fresh interpreter and picks up the pinned version, so the pipeline is fine —
+# but the notebook's own `import pandas` in section 9 would fail with "numpy.dtype size
+# changed", an hour into the run. Restarting the kernel here costs nothing and settles it.
+# The clone, the fetched structures and results/ are all on disk and survive a restart.
+import os, pathlib, sys
+
+_restarted = pathlib.Path("/tmp/.boltz-cdr-kernel-restarted")
+if "google.colab" in sys.modules and not _restarted.exists():
+    _restarted.touch()
+    print("Restarting the kernel so the pinned numpy is the one in memory.")
+    print("When it comes back, re-run from the clone cell above and carry on —")
+    print("nothing is lost, and pip will be a no-op the second time.")
+    get_ipython().kernel.do_shutdown(restart=True)
 """),
 code("""
 import sys
@@ -652,16 +664,34 @@ md("""
 The analysis tables are small; the structures are not. Download just the tables, or copy
 the whole `results/` tree to Drive if you want to re-analyze later — `04_evaluate.py`
 runs on a laptop against a saved `results/` directory.
+
+**Worth running as soon as section 8 finishes, not at the very end.** Every predicted
+structure is already on disk under `results/<target>/<arm>/structures/`, and
+`samples.csv` records the path of each one — but that disk is the Colab VM's. A kernel
+restart keeps it; the session being recycled does not.
 """, concise="""
 ## 11 · Save results
 
-Downloads the analysis tables. The structures stay behind; copy `results/` to Drive if you
-want to re-analyze later, since `04_evaluate.py` runs on a laptop against a saved tree.
+**Worth running as soon as section 8 finishes, not only at the very end.** Every predicted
+structure is already on disk under `results/<target>/<arm>/structures/`, and `samples.csv`
+records the path of each one — but that disk belongs to the Colab VM. A kernel restart keeps
+it; the session being recycled does not. `04_evaluate.py` re-runs on a laptop against a saved
+tree, so the structures are worth keeping.
 """),
 code("""
-!cd results && zip -qr /content/analysis.zip analysis && echo "wrote /content/analysis.zip"
+# The tables: a few hundred KB, and enough to redo every figure in this notebook.
+!cd results && zip -qr /content/analysis.zip analysis && du -h /content/analysis.zip
+
+# The structures too — tens of MB, and the only copy of an hour of GPU time.
+!cd /content/boltz-cdr && zip -qr /content/results.zip results && du -h /content/results.zip
+
 from google.colab import files
 files.download("/content/analysis.zip")
+files.download("/content/results.zip")
+
+# Or keep them somewhere that outlives the VM, which is the safer move mid-run:
+# from google.colab import drive; drive.mount("/content/drive")
+# !cp -r /content/boltz-cdr/results /content/drive/MyDrive/boltz-cdr-results
 """),
 ]
 
