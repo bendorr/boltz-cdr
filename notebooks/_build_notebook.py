@@ -80,7 +80,7 @@ unmodified Boltz-2.
 | 6 | **Arm A** — re-predict with the CDRs deleted from a template | ~8 min/target |
 | 7 | **Arm B** — CDR-selective diffusion resampling, three sub-arms | ~12 min/target |
 | 8 | accuracy, diversity, and which score picks the best structure — CPU | ~1 min |
-| 9–11 | ensemble figures, summary panels, download | ~1 min |
+| 9–12 | ensemble figures, summary panels, download, copy to Drive | ~1 min |
 
 **GPU (A100 or L4)** — *Runtime → Change runtime type → GPU*; only §5–7 need one.
 `scripts/06_synthetic_ensemble.py` exercises the whole analysis path without one.
@@ -190,17 +190,32 @@ annotation with loops of your own, in **author residue numbering**:
 code("""
 TARGETS = ["8QF4", "9EZU", "9HUR"]
 SAMPLES = 8            # diffusion samples per run; raise if you have time budget
+JOB_NAME = "run1"      # names the archives and the Drive folder at the end
 
 # e.g. CDR_RESIDUES = "E:cdr3=99-117"  -> resample only CDR3 of 8QF4
 CDR_RESIDUES = None
+
+# Where predictions are written, and where everything downstream reads them from. Point it
+# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8 —
+# an interrupted session's structures are still under /content/boltz-cdr/results, and a copy
+# saved to Drive by the last cell of this notebook can be pointed at directly:
+#
+#   RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
+#
+RESULTS = "results"
 
 DEMO_TARGET = TARGETS[0]          # the one the CPU demos below illustrate
 target_args = " ".join(f"--target {t}" for t in TARGETS)
 CDR_ARG = f'--cdr-residues "{CDR_RESIDUES}"' if CDR_RESIDUES else ""
 
+import pathlib
+_done = sorted(p.parent.parent.name for p in pathlib.Path(RESULTS).glob("*/*/structures"))
 print("targets        :", ", ".join(TARGETS))
 print("samples per arm:", SAMPLES)
 print("CDR definition :", CDR_RESIDUES or "automatic IMGT annotation")
+print("job name       :", JOB_NAME)
+print("results tree   :", RESULTS,
+      f"({len(_done)} arm(s) already predicted)" if _done else "(empty — sections 5-7 will fill it)")
 """),
 
 md("""
@@ -265,8 +280,12 @@ against, and it produces the docked poses Arms A and B build on.
 Stock, unpatched Boltz-2: the null hypothesis both modified arms are measured against, and
 the source of the docked poses they build on. `--steered` adds a second baseline using
 Boltz's own `--use_potentials`, separating "steering helps" from "*our* steering helps".
+
+Sections 5 to 7 are the GPU stages, and the only ones that cost real time. If `RESULTS`
+already points at a tree of predictions — an interrupted session, or a copy saved to Drive
+by the last cell — skip them and carry on at section 8.
 """),
-code("!python scripts/01_global_dock.py {target_args} --samples {SAMPLES} --steered"),
+code("!python scripts/01_global_dock.py {target_args} --samples {SAMPLES} --steered --results {RESULTS}"),
 
 md("""
 ## 6 · Arm A — template-masked CDR re-prediction
@@ -284,7 +303,7 @@ re-predicted: the framework–antigen pose is pinned, the loops are free. `armA_
 templates the complete complex, so any diversity Arm A shows can be credited to the masking
 rather than to template conditioning.
 """),
-code("!python scripts/02_arm_a_template_resample.py {target_args} --top-k 2 --samples {SAMPLES} {CDR_ARG}"),
+code("!python scripts/02_arm_a_template_resample.py {target_args} --top-k 2 --samples {SAMPLES} {CDR_ARG} --results {RESULTS}"),
 
 md("""
 ## 7 · Arm B — CDR-selective diffusion resampling
@@ -313,7 +332,7 @@ returns `dE/dx` masked to the CDR atoms.
 """),
 code("""
 !python scripts/03_arm_b_diffusion_resample.py {target_args} --samples {SAMPLES} \\
-    --lambda-cdr 1.5 --partial-sigma 8.0 --guidance-weight 0.2 {CDR_ARG}
+    --lambda-cdr 1.5 --partial-sigma 8.0 --guidance-weight 0.2 {CDR_ARG} --results {RESULTS}
 """),
 
 md("""
@@ -377,7 +396,7 @@ resampled:
 - `ensembles.csv` — diversity and best-of-N coverage
 - `scorers.csv` — **which selection score actually picks the best structure**
 """),
-code("!python scripts/04_evaluate.py {target_args} {CDR_ARG}"),
+code("!python scripts/04_evaluate.py {target_args} {CDR_ARG} --results {RESULTS}"),
 
 md("""
 ## 9 · Visualizing the ensemble
@@ -445,7 +464,7 @@ if EXAMPLE_ENSEMBLE:
     print(f"PLACEHOLDER: {EXAMPLE_PATH} — set EXAMPLE_ENSEMBLE = False and rerun this "
           f"notebook to draw your own predictions instead")
 else:
-    samples = pd.read_csv("results/analysis/samples.csv")
+    samples = pd.read_csv(f"{RESULTS}/analysis/samples.csv")
     selected = samples[samples.target == VIEW_TARGET]
     if VIEW_ARMS:
         selected = selected[selected.arm.isin(VIEW_ARMS)]
@@ -576,8 +595,8 @@ fig, _ = plot_landscape(
     # member — raise `max_overlay` if it thinned the ensemble.
     point_colors=view.colors if len(view.colors) == len(structures) else None,
 )
-pathlib.Path("results/analysis").mkdir(parents=True, exist_ok=True)
-fig.savefig("results/analysis/cdr_landscape.png", dpi=150, bbox_inches="tight")
+pathlib.Path(f"{RESULTS}/analysis").mkdir(parents=True, exist_ok=True)
+fig.savefig(f"{RESULTS}/analysis/cdr_landscape.png", bbox_inches="tight")
 
 print(f"PC1+PC2 capture {projection.explained_variance.sum():.0%} of the conformational variance")
 print(f"kernel bandwidth {landscape.bandwidth:.2f}; {landscape.coverage:.0%} of the plane supported")
@@ -607,9 +626,9 @@ plt.rcParams.update({
     "legend.fontsize": 16, "axes.linewidth": 1.2,
 })
 
-samples = pd.read_csv("results/analysis/samples.csv")
-ensembles = pd.read_csv("results/analysis/ensembles.csv")
-scorers = pd.read_csv("results/analysis/scorers.csv")
+samples = pd.read_csv(f"{RESULTS}/analysis/samples.csv")
+ensembles = pd.read_csv(f"{RESULTS}/analysis/ensembles.csv")
+scorers = pd.read_csv(f"{RESULTS}/analysis/scorers.csv")
 
 fig, axes = plt.subplots(1, 3, figsize=(24, 7.5))
 
@@ -641,7 +660,7 @@ axes[2].set_xlabel("DockQ of the top-1 pick"); axes[2].set_title("Which scorer s
 axes[2].legend(); axes[2].tick_params(axis="y", labelsize=14)
 
 plt.tight_layout()
-plt.savefig("results/analysis/summary.png", bbox_inches="tight")
+plt.savefig(f"{RESULTS}/analysis/summary.png", bbox_inches="tight")
 plt.show()
 """),
 code("""
@@ -680,18 +699,42 @@ tree, so the structures are worth keeping.
 """),
 code("""
 # The tables: a few hundred KB, and enough to redo every figure in this notebook.
-!cd results && zip -qr /content/analysis.zip analysis && du -h /content/analysis.zip
+!cd {RESULTS} && zip -qr /content/analysis_{JOB_NAME}.zip analysis && du -h /content/analysis_{JOB_NAME}.zip
 
 # The structures too — tens of MB, and the only copy of an hour of GPU time.
-!cd /content/boltz-cdr && zip -qr /content/results.zip results && du -h /content/results.zip
+!zip -qr /content/results_{JOB_NAME}.zip {RESULTS} && du -h /content/results_{JOB_NAME}.zip
 
 from google.colab import files
-files.download("/content/analysis.zip")
-files.download("/content/results.zip")
+files.download(f"/content/analysis_{JOB_NAME}.zip")
+files.download(f"/content/results_{JOB_NAME}.zip")
+"""),
 
-# Or keep them somewhere that outlives the VM, which is the safer move mid-run:
-# from google.colab import drive; drive.mount("/content/drive")
-# !cp -r /content/boltz-cdr/results /content/drive/MyDrive/boltz-cdr-results
+md("""
+## 12 · Keep a copy on Drive
+
+Copies the whole run into a folder named after `JOB_NAME`. Drive outlives the VM, which a
+download to a laptop also does — but this one closes the loop: point `RESULTS` at the copy
+in section 3 and a later session reads these predictions instead of making them again,
+skipping sections 5 to 7 entirely.
+"""),
+code("""
+from google.colab import drive
+drive.mount("/content/drive")
+
+import pathlib, shutil
+
+DRIVE_DIR = pathlib.Path("/content/drive/MyDrive/boltz-cdr") / JOB_NAME
+if (DRIVE_DIR / "results").exists():
+    print(f"{DRIVE_DIR}/results already exists — change JOB_NAME to keep both runs.")
+else:
+    DRIVE_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(RESULTS, DRIVE_DIR / "results")
+    print("copied", RESULTS, "->", DRIVE_DIR / "results")
+
+print()
+print("To reuse these predictions in a later session, set this in section 3 and run")
+print("sections 1-3, then skip to section 8:")
+print(f'    RESULTS = "{DRIVE_DIR}/results"')
 """),
 ]
 
