@@ -30,8 +30,9 @@ from nbclient import NotebookClient
 from _build_overlay_stills import attach_still
 
 NOTEBOOKS = [
-    pathlib.Path("notebooks/colab_boltz_cdr.ipynb"),        # ships
-    pathlib.Path("notebooks/colab_boltz_cdr_long.ipynb"),   # local, gitignored
+    pathlib.Path("notebooks/colab_boltz_cdr.ipynb"),                # ships
+    pathlib.Path("notebooks/colab_boltz_cdr_long.ipynb"),           # local, gitignored
+    pathlib.Path("notebooks/colab_boltz_cdr_savedOutputs.ipynb"),   # local, gitignored
 ]
 FLAG = "EXAMPLE_ENSEMBLE = False"
 CONFIG_MARKER = "DEMO_TARGET = TARGETS[0]"

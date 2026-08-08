@@ -18,10 +18,13 @@ DEMO = ROOT / "notebooks" / "cdr_ensemble_visualization.ipynb"
 EXAMPLE = ROOT / "data" / "examples" / "9kfw_20models.pdb.gz"
 NOTEBOOKS = [COLAB, DEMO]
 
-# The long-form Colab notebook is gitignored working notes, so it is absent from a clone.
-# Where it is present it must still agree with the shipped one, which is what its tests are
-# for; a clone simply skips them.
+# Two local-only variants of the Colab notebook, both gitignored and both absent from a
+# clone: the long form carries the reasoning, and the saved-outputs form points RESULTS at
+# one person's Drive. Where they are present they must still agree with the shipped one; a
+# clone simply skips these tests.
 LONG = ROOT / "notebooks" / "colab_boltz_cdr_long.ipynb"
+SAVED = ROOT / "notebooks" / "colab_boltz_cdr_savedOutputs.ipynb"
+LOCAL_ONLY = [LONG, SAVED]
 needs_long = pytest.mark.skipif(not LONG.exists(), reason="long-form notebook is local only")
 
 
@@ -105,16 +108,32 @@ def test_the_two_colab_notebooks_share_every_code_cell():
     assert prose(COLAB) < 0.75 * prose(LONG), "the shipped notebook must be the short one"
 
 
-@needs_long
-def test_the_long_notebook_is_not_tracked_by_git():
-    """It is working notes; shipping both would put two runnable Colab notebooks in a clone."""
+@pytest.mark.parametrize("path", LOCAL_ONLY, ids=lambda p: p.name)
+def test_local_only_notebooks_are_not_tracked_by_git(path: Path):
+    """Shipping these would put three runnable Colab notebooks, one with a personal Drive
+    path in it, into a clone."""
     import subprocess
 
+    if not path.exists():
+        pytest.skip(f"{path.name} is local only")
     tracked = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", str(LONG.relative_to(ROOT))],
+        ["git", "ls-files", "--error-unmatch", str(path.relative_to(ROOT))],
         cwd=ROOT, capture_output=True, text=True, check=False,
     )
-    assert tracked.returncode != 0, f"{LONG.name} must stay gitignored"
+    assert tracked.returncode != 0, f"{path.name} must stay gitignored"
+
+
+def test_the_shipped_notebook_reads_its_own_results_tree():
+    """A hardcoded Drive path is useful to one account and misleading in every clone.
+
+    Only the assignment is checked: the last cell prints a `RESULTS = ...` line for the
+    reader to paste back, and mentions Drive because mounting it is that cell's job.
+    """
+    assignments = [
+        line for cell in cells(COLAB) for line in source(cell).splitlines()
+        if line.startswith("RESULTS = ")
+    ]
+    assert assignments == ['RESULTS = "results"'], assignments
 
 
 @pytest.mark.parametrize("path", NOTEBOOKS)

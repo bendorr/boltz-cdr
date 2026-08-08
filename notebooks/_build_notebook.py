@@ -25,6 +25,13 @@ DROP = object()   # a cell the concise notebook leaves out entirely
 
 FULL = "notebooks/colab_boltz_cdr_long.ipynb"      # local working copy, gitignored
 CONCISE = "notebooks/colab_boltz_cdr.ipynb"        # the one that ships
+SAVED = "notebooks/colab_boltz_cdr_savedOutputs.ipynb"   # local working copy, gitignored
+
+# The saved-outputs variant is the shipped notebook with one line changed: RESULTS points at
+# a run already on Drive, so sections 8 onward can be exercised in a fresh Colab session
+# without spending an hour predicting again. It is gitignored, because a hardcoded Drive path
+# is useful to exactly one account and misleading in anyone else's clone.
+SAVED_RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
 
 
 def lines(src):
@@ -196,13 +203,13 @@ JOB_NAME = "run1"      # names the archives and the Drive folder at the end
 CDR_RESIDUES = None
 
 # Where predictions are written, and where everything downstream reads them from. Point it
-# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8.
+# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8 —
+# an interrupted session's structures are still under /content/boltz-cdr/results, and a copy
+# saved to Drive by the last cell of this notebook can be pointed at directly:
 #
-# >>> TEMPORARY <<<  This is pointed at an existing run saved on Drive, so the sections after
-# the GPU stages can be exercised without spending an hour predicting again. Set it back to
-#     RESULTS = "results"
-# for a real run, which is also what a fresh clone should read.
-RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
+#   RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
+#
+RESULTS = "results"
 
 DEMO_TARGET = TARGETS[0]          # the one the CPU demos below illustrate
 target_args = " ".join(f"--target {t}" for t in TARGETS)
@@ -290,10 +297,6 @@ Boltz's own `--use_potentials`, separating "steering helps" from "*our* steering
 Sections 5 to 7 are the GPU stages, and the only ones that cost real time. If `RESULTS`
 already points at a tree of predictions — an interrupted session, or a copy saved to Drive
 by the last cell — skip them and carry on at section 8.
-
-**`RESULTS` is currently pointed at a saved run on Drive**, so running this section is not
-necessary to exercise the rest of the notebook. Set it back to `"results"` in section 3 to
-predict for real.
 """),
 code("!python scripts/01_global_dock.py {target_args} --samples {SAMPLES} --steered --results {RESULTS}"),
 
@@ -799,5 +802,30 @@ def write(path: str, resolved: list) -> None:
     print(f"wrote {path}: {len(resolved)} cells, {prose:,} characters of prose")
 
 
+def saved_outputs(resolved: list) -> list:
+    """The shipped notebook with RESULTS repointed at a run already saved on Drive.
+
+    One substituted line, applied to the built cells rather than maintained separately, so
+    this variant cannot drift from the notebook it is a copy of.
+    """
+    out, swapped = [], 0
+    for cell in resolved:
+        cell = dict(cell)
+        source = "".join(cell["source"])
+        if 'RESULTS = "results"' in source:
+            source = source.replace(
+                'RESULTS = "results"',
+                f'RESULTS = "{SAVED_RESULTS}"   # a run already on Drive: skip sections 5-7',
+            )
+            cell["source"] = lines(source)
+            swapped += 1
+        out.append(cell)
+    if swapped != 1:
+        msg = f"expected to repoint RESULTS in exactly one cell, did {swapped}"
+        raise RuntimeError(msg)
+    return out
+
+
 write(FULL, variant(concise=False))
 write(CONCISE, variant(concise=True))
+write(SAVED, saved_outputs(variant(concise=True)))
