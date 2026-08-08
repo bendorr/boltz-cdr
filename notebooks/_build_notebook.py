@@ -571,52 +571,62 @@ confidence against physics colored by true quality — the scorer-disagreement p
 code("""
 import pandas as pd, matplotlib.pyplot as plt, numpy as np
 
+# Print-sized type, so a panel lifted out of this notebook is legible at column width.
+plt.rcParams.update({
+    "figure.dpi": 110, "savefig.dpi": 300, "font.size": 20,
+    "axes.titlesize": 20, "axes.labelsize": 20,
+    "xtick.labelsize": 18, "ytick.labelsize": 18,
+    "legend.fontsize": 16, "axes.linewidth": 1.2,
+})
+
 samples = pd.read_csv("results/analysis/samples.csv")
 ensembles = pd.read_csv("results/analysis/ensembles.csv")
 scorers = pd.read_csv("results/analysis/scorers.csv")
 
-fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+fig, axes = plt.subplots(1, 3, figsize=(24, 7.5))
 
 # DockQ distribution per arm
 arms = sorted(samples["arm"].unique())
 axes[0].boxplot([samples.loc[samples.arm == a, "dockq"].dropna() for a in arms], labels=arms)
 for threshold, label in ((0.23, "acceptable"), (0.49, "medium"), (0.80, "high")):
-    axes[0].axhline(threshold, ls="--", lw=0.8, color="gray")
-    axes[0].text(0.55, threshold + 0.01, label, fontsize=7, color="gray")
+    axes[0].axhline(threshold, ls="--", lw=1.2, color="gray")
+    axes[0].text(0.55, threshold + 0.012, label, fontsize=14, color="gray")
 axes[0].set_ylabel("DockQ"); axes[0].set_title("Accuracy by arm")
 axes[0].tick_params(axis="x", rotation=45)
 
 # Diversity vs coverage
 for arm in arms:
     row = ensembles[ensembles.arm == arm]
-    axes[1].scatter(row["mean_pairwise_cdr3_rmsd"], row["best_dockq"], s=70, label=arm)
+    axes[1].scatter(row["mean_pairwise_cdr3_rmsd"], row["best_dockq"], s=160, label=arm)
 axes[1].set_xlabel("mean pairwise CDR3 RMSD (A)  — diversity")
 axes[1].set_ylabel("best-of-N DockQ  — coverage")
 axes[1].set_title("Does extra diversity buy coverage?")
-axes[1].legend(fontsize=7)
+axes[1].legend()
 
 # Scorer ranking power
 top = scorers.head(10).iloc[::-1]
 colors = ["tab:blue" if s.startswith("conf") else "tab:orange" for s in top["scorer"]]
 axes[2].barh(top["scorer"], top["top1_dockq"], color=colors)
-axes[2].axvline(scorers["mean_dockq"].iloc[0], ls="--", color="gray", label="random pick")
-axes[2].axvline(scorers["oracle_dockq"].iloc[0], ls="-", color="black", label="oracle")
+axes[2].axvline(scorers["mean_dockq"].iloc[0], ls="--", lw=1.6, color="gray", label="random pick")
+axes[2].axvline(scorers["oracle_dockq"].iloc[0], ls="-", lw=1.6, color="black", label="oracle")
 axes[2].set_xlabel("DockQ of the top-1 pick"); axes[2].set_title("Which scorer selects well?")
-axes[2].legend(fontsize=7); axes[2].tick_params(axis="y", labelsize=7)
+axes[2].legend(); axes[2].tick_params(axis="y", labelsize=14)
 
 plt.tight_layout()
-plt.savefig("results/analysis/summary.png", dpi=150, bbox_inches="tight")
+plt.savefig("results/analysis/summary.png", bbox_inches="tight")
 plt.show()
 """),
 code("""
 # Confidence vs physics, colored by true quality — the scorer-disagreement picture.
-fig, ax = plt.subplots(figsize=(6, 5))
+fig, ax = plt.subplots(figsize=(9, 7.5))
 sc = ax.scatter(samples["conf_iptm"], samples["shape_complementarity"],
-                c=samples["dockq"], cmap="viridis", s=45, edgecolor="k", linewidth=0.3)
+                c=samples["dockq"], cmap="viridis", s=150, edgecolor="k", linewidth=0.7)
 ax.set_xlabel("Boltz ipTM  (model confidence)")
 ax.set_ylabel("shape complementarity Sc  (physics)")
 ax.set_title("Where the two scorer families disagree")
-plt.colorbar(sc, label="true DockQ")
+bar = plt.colorbar(sc)
+bar.set_label("true DockQ", fontsize=20)
+bar.ax.tick_params(labelsize=18)
 plt.tight_layout(); plt.show()
 """),
 

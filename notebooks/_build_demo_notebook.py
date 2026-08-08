@@ -60,7 +60,21 @@ sys.path.insert(0, str(root / "src"))
 import numpy as np
 import matplotlib.pyplot as plt
 
-plt.rcParams["figure.dpi"] = 84        # keeps the committed outputs a sensible size
+# Print-sized type everywhere, so a panel lifted straight out of this notebook is legible
+# at journal column width. savefig.dpi is what matters for a figure you actually submit;
+# figure.dpi only sets how large the inline copies are in the saved notebook.
+plt.rcParams.update({
+    "figure.dpi": 110,
+    "savefig.dpi": 300,
+    "font.size": 20,
+    "axes.titlesize": 20,
+    "axes.labelsize": 20,
+    "xtick.labelsize": 18,
+    "ytick.labelsize": 18,
+    "legend.fontsize": 18,
+    "figure.titlesize": 24,
+    "axes.linewidth": 1.2,
+})
 
 from boltz_cdr.pdb_io import fetch_cif, load_models
 from boltz_cdr.cdr import annotate_vhh
@@ -105,11 +119,13 @@ print(f"{ensemble.cdr_coords.shape[1]} backbone atoms over "
 print(f"pairwise CDR RMSD after framework superposition: "
       f"mean {off_diagonal.mean():.2f} A, max {distance.max():.2f} A")
 
-fig, ax = plt.subplots(figsize=(5.2, 4.2))
+fig, ax = plt.subplots(figsize=(7.6, 6.0))
 image = ax.imshow(distance, cmap="magma")
 ax.set_xlabel("model"); ax.set_ylabel("model")
-ax.set_title("pairwise CDR RMSD (A)", fontsize=10)
-fig.colorbar(image, ax=ax)
+ax.set_title("pairwise CDR RMSD")
+ax.set_xticks(range(0, len(distance), 5)); ax.set_yticks(range(0, len(distance), 5))
+bar = fig.colorbar(image, ax=ax)
+bar.set_label("RMSD (A)")            # units on the bar, not buried in the title
 plt.tight_layout(); plt.show()
 """),
 

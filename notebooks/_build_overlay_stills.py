@@ -182,20 +182,20 @@ def _compose(panels: dict[str, pathlib.Path], titles: dict[str, str], out: pathl
     import matplotlib.pyplot as plt
     from PIL import Image
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.9))
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6.4))
     for ax, key in zip(axes, ("all", "subset"), strict=True):
         # PyMOL centers the scene in a fixed canvas, leaving wide transparent margins that
         # would otherwise shrink the molecule to a third of the panel.
         panel = Image.open(panels[key])
         ax.imshow(panel.crop(panel.getbbox()))
         ax.set_axis_off()
-        ax.set_title(titles[key], fontsize=9.5, color="#6e6e6e")
+        ax.set_title(titles[key], fontsize=19, color="#4a4a4a")
     fig.suptitle(
         "static preview of the interactive viewer — run the cell to rotate it, "
         "toggle side chains, and isolate members",
-        fontsize=9, color="#8a8a8a", y=0.055,
+        fontsize=18, color="#6e6e6e", y=0.06,
     )
-    fig.tight_layout(rect=(0, 0.055, 1, 1))
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     # The still is embedded in a committed notebook as well as saved here, so it is kept
     # small enough that two copies of it are not the largest thing in the repository.
     fig.savefig(out, dpi=96, transparent=True, bbox_inches="tight",
@@ -244,8 +244,9 @@ def render(name: str, spec: dict) -> pathlib.Path:
         _compose(
             panels,
             {
-                "all": f"all {len(members)} members — CDR loops on the shared framework",
-                "subset": "3 members — the extremes of the ensemble, with side chains",
+                # Two lines: at print-sized type these do not fit a panel on one.
+                "all": f"all {len(members)} members\nCDR loops on the shared framework",
+                "subset": "3 members\nthe ensemble's extremes, with side chains",
             },
             out,
         )

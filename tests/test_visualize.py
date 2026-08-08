@@ -516,6 +516,7 @@ def test_surface_keeps_its_value_colormap(native_complex):
 
 
 def test_axis_labels_present_on_both_panels(native_complex):
+    """The 3D panel takes short axis names; the 2D panel carries the full ones."""
     import matplotlib
     matplotlib.use("Agg")
 
@@ -528,11 +529,30 @@ def test_axis_labels_present_on_both_panels(native_complex):
     fig, (ax3d, ax2d) = plot_landscape(
         landscape, projection, value_label="score", point_colors=member_colors(4)
     )
-    assert ax3d.get_xlabel() == projection.axis_labels[0]
-    assert ax3d.get_ylabel() == projection.axis_labels[1]
+    assert ax3d.get_xlabel() == "PC1"
+    assert ax3d.get_ylabel() == "PC2"
     assert ax3d.get_zlabel() == "score"
     assert ax2d.get_xlabel() == projection.axis_labels[0]
+    assert ax2d.get_ylabel() == projection.axis_labels[1]
+    assert "variance" in ax2d.get_xlabel(), "the explained variance must survive somewhere"
     matplotlib.pyplot.close(fig)
+
+
+def test_short_axis_keeps_labels_that_are_already_short():
+    """Stripping the parenthetical must not eat a unit, only the variance annotation."""
+    from boltz_cdr.visualize import _short_axis
+
+    assert _short_axis("PC1 (30% of variance)") == "PC1"
+    assert _short_axis("MDS 1 (A)") == "MDS 1 (A)"
+    assert _short_axis("PC2") == "PC2"
+
+
+def test_landscape_type_is_sized_for_print():
+    """Every piece of text on the landscape has to survive reduction to column width."""
+    from boltz_cdr.visualize import FONT
+
+    assert min(FONT.values()) >= 12, "nothing on the figure may be smaller than 12 pt"
+    assert FONT["suptitle"] > FONT["label"] > FONT["tick"], "keep the hierarchy"
 
 
 # ------------------------------------------------- similarity coloring and dark mode

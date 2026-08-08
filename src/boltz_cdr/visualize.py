@@ -401,6 +401,32 @@ def conformation_landscape(
     return landscape, projection, ensemble
 
 
+# Type sizes in points, sized for print. A two-panel figure reproduced at journal column
+# width lands around 85 mm, so anything under ~14 pt here is unreadable on the page; these
+# are set so the smallest text on the figure survives that reduction. The figure is widened
+# to match, but by less than the type grew, which is what makes the text bigger *relative*
+# to the panels rather than just scaling the whole picture up.
+FONT = {
+    "suptitle": 24,
+    "title": 16,
+    "label": 18,
+    "tick": 14,
+    "legend": 18,
+    "key": 18,
+    "annotation": 12,
+}
+
+
+def _short_axis(label: str) -> str:
+    """`PC1 (30% of variance)` -> `PC1`, but leave a short label such as `MDS 1 (A)` alone.
+
+    The parenthetical is an annotation, not a unit, on the labels long enough to trip this,
+    and it is still shown on the 2D panel.
+    """
+    stem = label.split(" (")[0]
+    return stem if len(label) > 12 and stem else label  # noqa: PLR2004
+
+
 def plot_landscape(
     landscape: Landscape,
     projection: Projection,
@@ -409,7 +435,7 @@ def plot_landscape(
     title: str | None = None,
     labels: list[str] | None = None,
     cmap: str | None = None,
-    figsize: tuple[float, float] = (13, 5.5),
+    figsize: tuple[float, float] = (16, 7),
     elev: float = 30,
     azim: float = -60,
     point_colors: list[str] | None = None,
@@ -454,27 +480,37 @@ def plot_landscape(
         cmap=cmap, alpha=0.75, linewidth=0, antialiased=True, rstride=2, cstride=2,
     )
 
+    # Marks scale with the figure, or a print-sized panel shows legible type over dots too
+    # small to read a color off.
     if point_colors is not None:
         ax3d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
-            c="none", edgecolor="white", linewidth=3.2, s=74, depthshade=False,
+            c="none", edgecolor="white", linewidth=3.8, s=125, depthshade=False,
         )
     ax3d.scatter(
         landscape.xy[:, 0], landscape.xy[:, 1], landscape.z,
         c=point_colors if point_colors is not None else "black",
-        s=48 if point_colors is not None else 22,
+        s=84 if point_colors is not None else 40,
         edgecolor=value_edges if point_colors is not None else "none",
-        linewidth=2.2 if point_colors is not None else 0,
+        linewidth=2.8 if point_colors is not None else 0,
         depthshade=False, label=f"{len(landscape.z)} structures",
     )
 
-    ax3d.set_xlabel(projection.axis_labels[0], fontsize=8)
-    ax3d.set_ylabel(projection.axis_labels[1], fontsize=8)
-    ax3d.set_zlabel(value_label, fontsize=8)
+    # Three long labels at print size will not fit around a projected cube — the x- and
+    # y-labels run into each other along the bottom edge, and the y-label into the vertical
+    # z-label at the corner. So the 3D panel takes the short axis names and the 2D panel
+    # beside it carries the full ones, including the explained variance.
+    ax3d.set_xlabel(_short_axis(projection.axis_labels[0]), fontsize=FONT["label"],
+                    labelpad=14)
+    ax3d.set_ylabel(_short_axis(projection.axis_labels[1]), fontsize=FONT["label"],
+                    labelpad=14)
+    ax3d.set_zlabel(value_label, fontsize=FONT["label"], labelpad=30)
     ax3d.view_init(elev=elev, azim=azim)
-    ax3d.tick_params(labelsize=7)
+    ax3d.tick_params(labelsize=FONT["tick"], pad=2)
+    ax3d.locator_params(nbins=4)
+    ax3d.set_box_aspect(None, zoom=0.80)
     if point_colors is None:
-        ax3d.legend(fontsize=7, loc="upper left")
+        ax3d.legend(fontsize=FONT["legend"], loc="upper left")
 
     ax2d = fig.add_subplot(1, 2, 2)
     filled = ax2d.contourf(
@@ -490,31 +526,37 @@ def plot_landscape(
         # visible outer boundary and the marker reads as a bare fill.
         ax2d.scatter(
             landscape.xy[:, 0], landscape.xy[:, 1],
-            c="none", edgecolor="white", linewidth=3.8, s=138, zorder=2,
+            c="none", edgecolor="white", linewidth=4.6, s=215, zorder=2,
         )
     ax2d.scatter(
         landscape.xy[:, 0], landscape.xy[:, 1],
         c=point_colors if point_colors is not None else landscape.z,
         cmap=None if point_colors is not None else cmap,
         edgecolor=value_edges if point_colors is not None else "black",
-        linewidth=2.6 if point_colors is not None else 0.6,
-        s=106 if point_colors is not None else 60, zorder=3,
+        linewidth=3.2 if point_colors is not None else 0.9,
+        s=165 if point_colors is not None else 95, zorder=3,
     )
     if labels is not None:
         for (x, y), label in zip(landscape.xy, labels, strict=True):
-            ax2d.annotate(str(label), (x, y), fontsize=6, xytext=(3, 3),
+            ax2d.annotate(str(label), (x, y), fontsize=FONT["annotation"], xytext=(5, 5),
                           textcoords="offset points")
-    ax2d.set_xlabel(projection.axis_labels[0], fontsize=9)
-    ax2d.set_ylabel(projection.axis_labels[1], fontsize=9)
-    fig.colorbar(filled, ax=ax2d, label=value_label)
+    ax2d.set_xlabel(projection.axis_labels[0], fontsize=FONT["label"])
+    ax2d.set_ylabel(projection.axis_labels[1], fontsize=FONT["label"])
+    ax2d.tick_params(labelsize=FONT["tick"])
+    for spine in ax2d.spines.values():
+        spine.set_linewidth(1.2)
+
+    bar = fig.colorbar(filled, ax=ax2d)
+    bar.set_label(value_label, fontsize=FONT["label"])
+    bar.ax.tick_params(labelsize=FONT["tick"])
     ax2d.set_title(
         f"kernel bandwidth {landscape.bandwidth:.2f}, "
         f"{landscape.coverage:.0%} of the plane supported",
-        fontsize=8,
+        fontsize=FONT["title"], pad=12,
     )
 
     if title:
-        fig.suptitle(title, fontsize=12)
+        fig.suptitle(title, fontsize=FONT["suptitle"])
     if point_colors is None:
         fig.tight_layout()
     else:
@@ -536,22 +578,24 @@ def _point_key(fig, point_colors: list[str], cmap: str, value_label: str) -> Non
     from matplotlib.lines import Line2D
 
     def dot(face, edge, edge_width):
-        return Line2D([], [], marker="o", linestyle="none", markersize=7.5,
+        # Markers grow with the type they sit beside, or the key stops reading as a sample
+        # of the marks it explains.
+        return Line2D([], [], marker="o", linestyle="none", markersize=13,
                       markerfacecolor=face, markeredgecolor=edge,
                       markeredgewidth=edge_width)
 
     n = len(point_colors)
     spectrum = [point_colors[round(t * (n - 1))] for t in (0, 0.5, 1)] if n >= 3 else point_colors
-    fills = tuple(dot(color, "0.45", 0.8) for color in spectrum)
-    rings = tuple(dot("0.90", plt.get_cmap(cmap)(t), 2.2) for t in (0.12, 0.5, 0.88))
+    fills = tuple(dot(color, "0.45", 1.4) for color in spectrum)
+    rings = tuple(dot("0.90", plt.get_cmap(cmap)(t), 3.6) for t in (0.12, 0.5, 0.88))
 
     fig.legend(
         [fills, rings],
         [f"fill: which model — as in the structural overlay ({n} models)",
          f"ring: {value_label} — on the surface's own scale"],
         handler_map={tuple: HandlerTuple(ndivide=None, pad=0.45)},
-        loc="lower center", ncol=2, fontsize=9, handlelength=3.2,
-        handletextpad=0.7, columnspacing=2.5, borderaxespad=0.4, frameon=False,
+        loc="lower center", ncol=2, fontsize=FONT["key"], handlelength=3.4,
+        handletextpad=0.9, columnspacing=3.0, borderaxespad=0.4, frameon=False,
     )
 
 
