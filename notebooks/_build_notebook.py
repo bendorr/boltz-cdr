@@ -471,8 +471,19 @@ else:
     selected = selected.reset_index(drop=True)
 
     target = load_targets(only=[VIEW_TARGET], cdr_residues=CDR_RESIDUES)[0]
+
+    # 04_evaluate.py records absolute paths, so a tree that has moved since — copied to
+    # Drive, or read from a different VM — needs them rebased onto RESULTS. The layout under
+    # the root is fixed: <target>/<arm>/structures/<file>.
+    import os, pathlib
+    def structure_path(recorded):
+        if os.path.exists(recorded):
+            return recorded
+        return str(pathlib.Path(RESULTS, *pathlib.Path(recorded).parts[-4:]))
+
     structures = [
-        load_complex(p, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID) for p in selected["path"]
+        load_complex(structure_path(p), ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID)
+        for p in selected["path"]
     ]
     annotation = target.annotation_for(structures[0].antibody.seq)
 
@@ -716,6 +727,12 @@ Copies the whole run into a folder named after `JOB_NAME`. Drive outlives the VM
 download to a laptop also does — but this one closes the loop: point `RESULTS` at the copy
 in section 3 and a later session reads these predictions instead of making them again,
 skipping sections 5 to 7 entirely.
+
+Worth knowing why that matters. A Colab notebook gets its own VM, and `/content` on it is
+empty at the start and gone when the session ends — a *new* notebook cannot see the previous
+one's `results/` at all. Drive is the only place a run survives both. Section 9 rebases the
+structure paths recorded in `samples.csv` onto `RESULTS`, so a tree read from its Drive copy
+still resolves; re-running section 8 against the new path rewrites them properly.
 """),
 code("""
 from google.colab import drive

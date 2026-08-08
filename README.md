@@ -12,7 +12,7 @@ GPU-free evaluation suite for scoring the results.
 *CDR loops of three members of a 20-model NMR ensemble, superposed on a shared framework,
 beside that ensemble's conformation landscape — the loops projected to two dimensions with
 a per-structure quantity smoothed over the plane. Both views are drawn by
-`boltz_cdr.visualize`, and both notebooks reproduce them.*
+`boltz_cdr.visualize`*
 
 ---
 
