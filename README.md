@@ -169,6 +169,11 @@ outputs, so the ensemble figures are visible without running anything. It applie
 visualizations to a 20-model NMR structure of a nanobody, where the CDR loop diversity is
 experimentally measured rather than predicted.
 
+The structural overlay is a py3Dmol viewer, and GitHub's notebook preview strips the
+JavaScript that drives it, so both notebooks commit a ray-traced still of the same scene
+(`assets/`) in its place. Running the cell replaces the still with the live viewer;
+`python notebooks/_build_overlay_stills.py` redraws it and needs PyMOL on PATH.
+
 On a GPU:
 
 ```bash

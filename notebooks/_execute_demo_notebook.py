@@ -5,6 +5,7 @@ anything, which is only honest if the committed outputs were produced by the com
 code. Regenerating and re-executing are therefore two steps of one routine:
 
     python notebooks/_build_demo_notebook.py
+    python notebooks/_build_overlay_stills.py     # only when the overlay scene changes
     python notebooks/_execute_demo_notebook.py
 
 Run from the repository root. Requires `nbformat`, `nbclient`, and `ipykernel`, which are
@@ -17,7 +18,17 @@ import sys
 import nbformat
 from nbclient import NotebookClient
 
+from _build_overlay_stills import attach_still
+
 NOTEBOOK = pathlib.Path("notebooks/cdr_ensemble_visualization.ipynb")
+
+
+def _find(nb, marker: str):
+    matches = [c for c in nb.cells if c.cell_type == "code" and marker in "".join(c.source)]
+    if len(matches) != 1:
+        msg = f"expected exactly one code cell containing {marker!r}, found {len(matches)}"
+        raise RuntimeError(msg)
+    return matches[0]
 
 
 def _verify_interpreter(nb, client) -> str:
@@ -69,16 +80,11 @@ def main() -> int:
         for index, cell in enumerate(nb.cells):
             client.execute_cell(cell, index)
 
-    # The viewer payload is deliberately kept under both `application/3dmoljs_load.v0`
-    # and `text/html`. Stripping the former halves the file size but leaves VSCode
-    # rendering a static image instead of an interactive viewer, so it stays.
-    viewers = sum(
-        1
-        for cell in nb.cells
-        for output in cell.get("outputs", [])
-        if "application/3dmoljs_load.v0" in output.get("data", {})
-    )
-    print(f"{viewers} interactive viewer output(s) retained")
+    # The overlay is a py3Dmol viewer, and GitHub strips the JavaScript that drives it, so
+    # what gets committed is a ray-traced still of the same scene. Running the cell replaces
+    # it with the live viewer.
+    overlay = _find(nb, "ensemble_view(")
+    print(f"overlay output replaced with {attach_still(overlay, NOTEBOOK.name)}")
 
     # Drop per-cell execution timestamps. They change on every run and would otherwise
     # make each re-execution a diff of the whole notebook, obscuring whether any output

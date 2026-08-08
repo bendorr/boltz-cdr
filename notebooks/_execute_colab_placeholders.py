@@ -1,11 +1,12 @@
-"""Execute the two visualization cells of `colab_boltz_cdr.ipynb` on the example ensemble.
+"""Execute the visualization cells of both Colab notebooks on the example ensemble.
 
-The Colab notebook is a GPU runner: nothing else in it can be executed here, and its
-outputs are meant to be produced by whoever runs it. The visualization section is the one
+The Colab notebooks are GPU runners: nothing else in them can be executed here, and their
+outputs are meant to be produced by whoever runs them. The visualization section is the one
 part worth committing already drawn, so section 9 is not a pair of blank cells in the
 repository. This runs exactly those cells — the loader, the structural overlay and the
 conformation landscape — with `EXAMPLE_ENSEMBLE` forced on, so they draw the ten committed
-NMR models instead of predictions that do not exist yet.
+NMR models instead of predictions that do not exist yet. Both notebooks are handled because
+they are built from one set of cells and differ only in their prose.
 
 The flag is flipped in memory only. What gets written back is the notebook with its source
 unchanged (`EXAMPLE_ENSEMBLE = False`) and placeholder outputs attached, which is the state
@@ -26,7 +27,12 @@ import sys
 import nbformat
 from nbclient import NotebookClient
 
-NOTEBOOK = pathlib.Path("notebooks/colab_boltz_cdr.ipynb")
+from _build_overlay_stills import attach_still
+
+NOTEBOOKS = [
+    pathlib.Path("notebooks/colab_boltz_cdr.ipynb"),        # ships
+    pathlib.Path("notebooks/colab_boltz_cdr_long.ipynb"),   # local, gitignored
+]
 FLAG = "EXAMPLE_ENSEMBLE = False"
 CONFIG_MARKER = "DEMO_TARGET = TARGETS[0]"
 CELL_MARKERS = (FLAG, "ensemble_view(", "plot_landscape(")   # the flag is set in one cell
@@ -55,16 +61,8 @@ def _run_detached(client, nb, source: str) -> str:
     return "".join("".join(o.get("text", "")) for o in cell.get("outputs", [])).strip()
 
 
-def main() -> int:
-    if not NOTEBOOK.exists():
-        print(f"{NOTEBOOK} not found; run notebooks/_build_notebook.py first")
-        return 1
-    example = pathlib.Path("data/examples/9kfw_10models.pdb.gz")
-    if not example.exists():
-        print(f"{example} not found; run notebooks/_build_example_ensemble.py first")
-        return 1
-
-    nb = nbformat.read(NOTEBOOK, as_version=4)
+def placeholders(notebook: pathlib.Path) -> None:
+    nb = nbformat.read(notebook, as_version=4)
     loader, overlay, landscape = (_find(nb, marker) for marker in CELL_MARKERS)
     if FLAG not in "".join(loader.source):
         msg = f"{FLAG!r} is not in the loader cell; the notebook and this script disagree"
@@ -103,21 +101,34 @@ def main() -> int:
         finally:
             loader.source = original
 
-    kinds = {
-        "viewer": sum("application/3dmoljs_load.v0" in o.get("data", {})
-                      for o in overlay.outputs),
-        "figure": sum("image/png" in o.get("data", {}) for o in landscape.outputs),
-    }
-    print(f"placeholder outputs: {kinds['viewer']} interactive viewer, "
-          f"{kinds['figure']} figure")
-    if not all(kinds.values()):
-        msg = f"expected one of each output, got {kinds}"
+    if not any("application/3dmoljs_load.v0" in o.get("data", {}) for o in overlay.outputs):
+        msg = "the overlay cell produced no viewer; the still would stand in for nothing"
+        raise RuntimeError(msg)
+    if not any("image/png" in o.get("data", {}) for o in landscape.outputs):
+        msg = "the landscape cell produced no figure"
         raise RuntimeError(msg)
 
-    nbformat.write(nb, NOTEBOOK)
+    # GitHub strips the viewer's JavaScript, so the committed overlay output is a still of
+    # the same scene; running the cell replaces it with the live viewer.
+    still = attach_still(overlay, notebook.name)
+
+    nbformat.write(nb, notebook)
     executed = sum(1 for c in nb.cells if c.cell_type == "code" and c.get("outputs"))
-    print(f"saved {NOTEBOOK} with {executed} executed cell(s); "
+    print(f"{notebook}: {executed} cells executed, overlay shows {still}, "
           f"{FLAG!r} restored in the source")
+
+
+def main() -> int:
+    example = pathlib.Path("data/examples/9kfw_10models.pdb.gz")
+    if not example.exists():
+        print(f"{example} not found; run notebooks/_build_example_ensemble.py first")
+        return 1
+    present = [n for n in NOTEBOOKS if n.exists()]
+    if NOTEBOOKS[0] not in present:
+        print(f"{NOTEBOOKS[0]} not found; run notebooks/_build_notebook.py first")
+        return 1
+    for notebook in present:
+        placeholders(notebook)
     return 0
 
 

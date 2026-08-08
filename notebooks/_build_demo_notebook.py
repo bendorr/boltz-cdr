@@ -141,8 +141,11 @@ Drag to rotate. The controls below the viewer are live:
   every model at once.
 
 The controls are plain JavaScript rather than ipywidgets, so they keep working in this
-saved notebook without a running kernel. GitHub's notebook preview strips scripts and
-will show this cell as blank; Colab, Jupyter and nbviewer render it.
+saved notebook without a running kernel — but only where the JavaScript survives, and
+GitHub's notebook preview strips it. So what is committed below is a **still**: a
+ray-traced picture of the same scene, all twenty models beside three of them with their
+side chains, standing in for the two controls that matter most. Run the cell and the live
+viewer replaces it.
 """),
 
 code("""

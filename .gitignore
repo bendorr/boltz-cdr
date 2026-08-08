@@ -24,3 +24,7 @@ results_synthetic/
 scratch/
 notes/
 for_ben/
+
+# The long-form Colab notebook: same cells as colab_boltz_cdr.ipynb, with the reasoning
+# behind each step written out. Kept as working notes, not shipped.
+notebooks/colab_boltz_cdr_long.ipynb
