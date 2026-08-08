@@ -196,19 +196,25 @@ JOB_NAME = "run1"      # names the archives and the Drive folder at the end
 CDR_RESIDUES = None
 
 # Where predictions are written, and where everything downstream reads them from. Point it
-# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8 —
-# an interrupted session's structures are still under /content/boltz-cdr/results, and a copy
-# saved to Drive by the last cell of this notebook can be pointed at directly:
+# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8.
 #
-#   RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
-#
-RESULTS = "results"
+# >>> TEMPORARY <<<  This is pointed at an existing run saved on Drive, so the sections after
+# the GPU stages can be exercised without spending an hour predicting again. Set it back to
+#     RESULTS = "results"
+# for a real run, which is also what a fresh clone should read.
+RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
 
 DEMO_TARGET = TARGETS[0]          # the one the CPU demos below illustrate
 target_args = " ".join(f"--target {t}" for t in TARGETS)
 CDR_ARG = f'--cdr-residues "{CDR_RESIDUES}"' if CDR_RESIDUES else ""
 
-import pathlib
+import pathlib, sys
+# Reading predictions from Drive means Drive has to be mounted before section 8, not at the
+# end of the notebook where the copy-out cell lives.
+if RESULTS.startswith("/content/drive") and "google.colab" in sys.modules:
+    from google.colab import drive
+    drive.mount("/content/drive")
+
 _done = sorted(p.parent.parent.name for p in pathlib.Path(RESULTS).glob("*/*/structures"))
 print("targets        :", ", ".join(TARGETS))
 print("samples per arm:", SAMPLES)
@@ -284,6 +290,10 @@ Boltz's own `--use_potentials`, separating "steering helps" from "*our* steering
 Sections 5 to 7 are the GPU stages, and the only ones that cost real time. If `RESULTS`
 already points at a tree of predictions — an interrupted session, or a copy saved to Drive
 by the last cell — skip them and carry on at section 8.
+
+**`RESULTS` is currently pointed at a saved run on Drive**, so running this section is not
+necessary to exercise the rest of the notebook. Set it back to `"results"` in section 3 to
+predict for real.
 """),
 code("!python scripts/01_global_dock.py {target_args} --samples {SAMPLES} --steered --results {RESULTS}"),
 
@@ -606,8 +616,10 @@ fig, _ = plot_landscape(
     # member — raise `max_overlay` if it thinned the ensemble.
     point_colors=view.colors if len(view.colors) == len(structures) else None,
 )
-pathlib.Path(f"{RESULTS}/analysis").mkdir(parents=True, exist_ok=True)
-fig.savefig(f"{RESULTS}/analysis/cdr_landscape.png", bbox_inches="tight")
+# Saved beside the tables, when there is a results tree to save it into.
+if pathlib.Path(RESULTS).exists():
+    pathlib.Path(f"{RESULTS}/analysis").mkdir(parents=True, exist_ok=True)
+    fig.savefig(f"{RESULTS}/analysis/cdr_landscape.png", bbox_inches="tight")
 
 print(f"PC1+PC2 capture {projection.explained_variance.sum():.0%} of the conformational variance")
 print(f"kernel bandwidth {landscape.bandwidth:.2f}; {landscape.coverage:.0%} of the plane supported")
