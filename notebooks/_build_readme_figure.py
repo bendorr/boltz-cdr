@@ -119,8 +119,12 @@ def _landscape_panels(work: pathlib.Path, members, annotation, colors, subset) -
         point_colors=colors,
     )
     ax2d.set_title("")                   # no panel title
-    for legend in list(fig.legends):     # no fill/ring key
-        legend.remove()
+
+    # The key stays, but the fill entry drops its cross-reference. The notebook's version
+    # reads "as in the structural overlay (20 models)", and in the banner the overlay is the
+    # panel to the left showing three members, so that phrase would be pointing at the wrong
+    # picture and naming the wrong count.
+    fig.legends[0].get_texts()[0].set_text("fill: which model")
 
     # The z-axis and the colorbar name the same quantity, and with the panels butted
     # together for a banner the z-label runs into the contour panel's y-label. The colorbar
@@ -129,7 +133,7 @@ def _landscape_panels(work: pathlib.Path, members, annotation, colors, subset) -
     # Dropping that label lets tight_layout close the gap between the panels, which puts the
     # z tick numbers into the contour panel's y-label. Pulling the cube in reopens it.
     ax3d.set_box_aspect(None, zoom=0.84)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.07, 1, 1))   # leave the strip the key sits in
 
     out = work / "landscape.png"
     fig.savefig(out, dpi=150, transparent=True, bbox_inches="tight",
