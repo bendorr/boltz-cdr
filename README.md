@@ -1,6 +1,6 @@
 # boltz-cdr
 
-**Concentrating structural sampling where antibody-structure models are most uncertain.**
+**Concentrating structural sampling at hypervariable loops, where structure prediction models are most uncertain.**
 
 ![CDR loops of three ensemble members over a shared framework, beside the same ensemble's conformation landscape as a surface and as a contour map](assets/readme_banner.png)
 
