@@ -282,3 +282,39 @@ def test_invalid_guidance_config_rejected():
         CDRGuidanceConfig(n_contacts=0)
     with pytest.raises(ValueError, match="clash_distance"):
         CDRGuidanceConfig(clash_distance=5.0, contact_distance=4.5)
+
+
+def test_gradient_survives_inference_mode(native_complex):
+    """Lightning predicts under `torch.inference_mode`, which `enable_grad` does not lift.
+
+    This is the failure that killed the guided arm on the GPU while every CPU test passed:
+    tensors created inside inference mode are barred from autograd entirely, so the energy
+    came back with no `grad_fn` and `torch.autograd.grad` raised
+
+        RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn
+
+    `no_grad` — what the other tests here run under, implicitly or otherwise — does not
+    reproduce it. Inference mode has to be entered for real.
+    """
+    annotation = annotate_vhh(native_complex.antibody.seq)
+
+    with torch.inference_mode():
+        feats = mock_feats_from_complex(native_complex, dtype=torch.float64)
+        config = CDRGuidanceConfig(
+            antibody_chain=0,
+            antigen_chain=1,
+            cdr_residues=tuple(int(i) for i in annotation.all_indices),
+        )
+        selection = resolve_selection(feats, config)
+        coords = feats["coords"].clone()
+
+        grad = cdr_interface_gradient(coords, selection, config)
+
+    assert grad.shape == coords.shape
+    assert torch.isfinite(grad).all()
+    assert grad[:, selection.cdr_atoms, :].abs().max() > 0.0, (
+        "the gradient has to actually flow — a silently zero gradient is the same bug"
+    )
+    assert grad[:, selection.epitope_atoms, :].abs().max() == 0.0, (
+        "antigen atoms must never be moved"
+    )

@@ -79,6 +79,22 @@ class CDRAtomSelection:
     def is_empty(self) -> bool:
         return len(self.cdr_atoms) == 0 or len(self.epitope_atoms) == 0
 
+    def as_autograd_safe(self) -> "CDRAtomSelection":
+        """A copy whose tensors can take part in autograd.
+
+        Tensors created under `torch.inference_mode` cannot be saved for backward, and the
+        energy's `torch.where` saves its condition. Cloning them outside inference mode
+        yields ordinary tensors. The group matrix is deliberately not carried over, so it
+        rebuilds from the cloned labels.
+        """
+        return CDRAtomSelection(
+            cdr_atoms=self.cdr_atoms.clone(),
+            epitope_atoms=self.epitope_atoms.clone(),
+            cdr_residue_labels=self.cdr_residue_labels.clone(),
+            n_atom_total=self.n_atom_total,
+            meta=dict(self.meta),
+        )
+
     def residue_group_matrix(self) -> torch.Tensor:
         """(n_residue, n_cdr_atom) boolean membership matrix, built once and cached."""
         if self._group_matrix is None:
@@ -193,7 +209,17 @@ def cdr_interface_gradient(
     if selection.is_empty:
         return torch.zeros_like(coords)
 
-    with torch.enable_grad():
+    # `inference_mode(False)` as well as `enable_grad()`, and the difference matters.
+    # Lightning's predict loop runs under `torch.inference_mode`, which is stronger than
+    # `no_grad`: tensors created inside it are inference tensors, barred from autograd
+    # entirely, and `enable_grad` does not lift it. Under `no_grad` alone this function works
+    # — which is why every CPU test passed while the guided arm died on the GPU with
+    # "element 0 of tensors does not require grad and does not have a grad_fn". The clone
+    # must happen inside the block: cloning an inference tensor is what produces a normal
+    # one.
+    with torch.inference_mode(False), torch.enable_grad():
+        if torch.is_inference(selection.cdr_atoms):
+            selection = selection.as_autograd_safe()
         x = coords.detach().clone().requires_grad_(True)
         energy = cdr_interface_energy(x, selection, cfg).sum()
         (grad,) = torch.autograd.grad(energy, x, allow_unused=False)
@@ -231,7 +257,11 @@ def make_cdr_potential(cfg: CDRGuidanceConfig, parameters: dict | None = None):
             a2t = feats["atom_to_token"]
             key = (tuple(a2t.shape), str(a2t.device))
             if key not in self._cache:
-                self._cache[key] = resolve_selection(feats, self.config)
+                # Built outside inference mode for the same reason the gradient is: these
+                # index and mask tensors are consumed by the energy, and `torch.where` saves
+                # its condition for backward. An inference tensor cannot be saved.
+                with torch.inference_mode(False):
+                    self._cache[key] = resolve_selection(feats, self.config)
             return self._cache[key]
 
         def compute(self, coords, feats, parameters):

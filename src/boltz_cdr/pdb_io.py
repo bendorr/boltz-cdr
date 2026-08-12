@@ -328,6 +328,14 @@ def write_complex_cif(cx: Complex, path: str | Path, *, name: str | None = None)
             res.name = chain.resnames[res_i]
             res.seqid = gemmi.SeqId(int(chain.resnums[res_i]), " ")
             res.het_flag = "A"
+            # Name the subchain after the chain. `setup_entities` invents its own otherwise
+            # — "Axp", "Bxp" — and those land in `_struct_asym.id` and
+            # `_atom_site.label_asym_id`, which is what a consumer sees as the chain's name.
+            # Boltz looks the template's chains up by that name and rejects a `template_id`
+            # it cannot find, so "Axp" instead of "A" loses the record. Its input pipeline
+            # processes records inside a per-record try, so the rejection is swallowed: the
+            # run exits cleanly with `{"records": []}` and no models, no traceback.
+            res.subchain = chain.chain_id
             for atom_i in chain.residue_atom_indices(res_i):
                 at = gemmi.Atom()
                 at.name = str(chain.atom_names[atom_i])
