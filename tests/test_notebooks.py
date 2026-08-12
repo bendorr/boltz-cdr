@@ -18,13 +18,10 @@ DEMO = ROOT / "notebooks" / "cdr_ensemble_visualization.ipynb"
 EXAMPLE = ROOT / "data" / "examples" / "9kfw_20models.pdb.gz"
 NOTEBOOKS = [COLAB, DEMO]
 
-# Two local-only variants of the Colab notebook, both gitignored and both absent from a
-# clone: the long form carries the reasoning, and the saved-outputs form points RESULTS at
-# one person's Drive. Where they are present they must still agree with the shipped one; a
-# clone simply skips these tests.
+# The long-form Colab notebook is gitignored working notes, absent from a clone. Where it is
+# present it must still agree with the shipped one; a clone simply skips these tests.
 LONG = ROOT / "notebooks" / "colab_boltz_cdr_long.ipynb"
-SAVED = ROOT / "notebooks" / "colab_boltz_cdr_savedOutputs.ipynb"
-LOCAL_ONLY = [LONG, SAVED]
+LOCAL_ONLY = [LONG]
 needs_long = pytest.mark.skipif(not LONG.exists(), reason="long-form notebook is local only")
 
 
@@ -123,17 +120,40 @@ def test_local_only_notebooks_are_not_tracked_by_git(path: Path):
     assert tracked.returncode != 0, f"{path.name} must stay gitignored"
 
 
-def test_the_shipped_notebook_reads_its_own_results_tree():
-    """A hardcoded Drive path is useful to one account and misleading in every clone.
+def test_the_shipped_notebook_writes_to_drive_under_a_generic_path():
+    """Predictions go to Drive so a dead Colab session does not take them with it.
 
-    Only the assignment is checked: the last cell prints a `RESULTS = ...` line for the
-    reader to paste back, and mentions Drive because mounting it is that cell's job.
+    `MyDrive` is the same literal for every Google account, so the path resolves in any
+    reader's Drive rather than naming anyone's. What must not appear is a personal
+    identifier — an email, a numeric Drive id, a home directory.
     """
     assignments = [
         line for cell in cells(COLAB) for line in source(cell).splitlines()
-        if line.startswith("RESULTS = ")
+        if line.startswith("RESULTS = ") or line.startswith("DRIVE_ROOT = ")
     ]
-    assert assignments == ['RESULTS = "results"'], assignments
+    assert any("/content/drive/MyDrive" in line for line in assignments), assignments
+
+    text = json.dumps(cells(COLAB))
+    for leak in ("/Users/", "/home/", "gmail", "drive.google.com/drive/u/"):
+        assert leak not in text, f"{leak} must not appear in a shipped notebook"
+
+
+def test_every_gpu_stage_can_resume():
+    """A crashed session is resumed by re-running the cells, not by starting over.
+
+    Each stage skips arms whose structures are already on disk, which is only useful if the
+    notebook actually invokes the stages against the same results tree every time.
+    """
+    stage_cells = [
+        source(c) for c in cells(COLAB)
+        if c["cell_type"] == "code" and "!python scripts/0" in source(c)
+    ]
+    predicting = [s for s in stage_cells if any(
+        n in s for n in ("01_global_dock", "02_arm_a", "03_arm_b")
+    ) and not s.lstrip().startswith("#")]
+    assert len(predicting) == 3, f"expected the three GPU stages, found {len(predicting)}"
+    for cell in predicting:
+        assert "--results {RESULTS}" in cell, cell
 
 
 @pytest.mark.parametrize("path", NOTEBOOKS)

@@ -16,7 +16,7 @@ once when an editing pass did `"".join(cell["source"])` on newline-less lines, w
 collapses them irreversibly.
 
 Usage (from the repository root):
-    python notebooks/_build_notebook.py        # writes both
+    python notebooks/_build_notebook.py        # writes both notebooks
 """
 
 import json
@@ -25,13 +25,6 @@ DROP = object()   # a cell the concise notebook leaves out entirely
 
 FULL = "notebooks/colab_boltz_cdr_long.ipynb"      # local working copy, gitignored
 CONCISE = "notebooks/colab_boltz_cdr.ipynb"        # the one that ships
-SAVED = "notebooks/colab_boltz_cdr_savedOutputs.ipynb"   # local working copy, gitignored
-
-# The saved-outputs variant is the shipped notebook with one line changed: RESULTS points at
-# a run already on Drive, so sections 8 onward can be exercised in a fresh Colab session
-# without spending an hour predicting again. It is gitignored, because a hardcoded Drive path
-# is useful to exactly one account and misleading in anyone else's clone.
-SAVED_RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
 
 
 def lines(src):
@@ -87,7 +80,7 @@ unmodified Boltz-2.
 | 6 | **Arm A** — re-predict with the CDRs deleted from a template | ~8 min/target |
 | 7 | **Arm B** — CDR-selective diffusion resampling, three sub-arms | ~12 min/target |
 | 8 | accuracy, diversity, and which score picks the best structure — CPU | ~1 min |
-| 9–12 | ensemble figures, summary panels, download, copy to Drive | ~1 min |
+| 9–12 | ensemble figures, summary panels, download, Drive check | ~1 min |
 
 **GPU (A100 or L4)** — *Runtime → Change runtime type → GPU*; only §5–7 need one.
 `scripts/06_synthetic_ensemble.py` exercises the whole analysis path without one.
@@ -202,14 +195,16 @@ JOB_NAME = "run1"      # names the archives and the Drive folder at the end
 # e.g. CDR_RESIDUES = "E:cdr3=99-117"  -> resample only CDR3 of 8QF4
 CDR_RESIDUES = None
 
-# Where predictions are written, and where everything downstream reads them from. Point it
-# at a tree that already holds predictions to skip sections 5-7 and pick up at section 8 —
-# an interrupted session's structures are still under /content/boltz-cdr/results, and a copy
-# saved to Drive by the last cell of this notebook can be pointed at directly:
+# Predictions are written straight to Drive, not to the VM. A Colab session ends for reasons
+# that have nothing to do with this pipeline — running out of RAM partway through the second
+# target is the usual one — and anything under /content dies with it. On Drive the work
+# survives, and every stage below skips arms that already have structures there, so a crashed
+# session is resumed by re-running the same cells rather than starting over.
 #
-#   RESULTS = "/content/drive/MyDrive/boltz-cdr/run1/results"
-#
-RESULTS = "results"
+# The trade is speed: Boltz writes its MSAs and processed inputs through the Drive mount,
+# which is slower than local disk. Set RESULTS = "results" to predict to the VM instead.
+DRIVE_ROOT = "/content/drive/MyDrive/boltz-cdr"
+RESULTS = f"{DRIVE_ROOT}/{JOB_NAME}/results"
 
 DEMO_TARGET = TARGETS[0]          # the one the CPU demos below illustrate
 target_args = " ".join(f"--target {t}" for t in TARGETS)
@@ -287,6 +282,16 @@ against, and it produces the docked poses Arms A and B build on.
 
 `--steered` adds a second baseline using Boltz's own `--use_potentials`, which separates
 "steering helps" from "*our* steering helps".
+
+Sections 5 to 7 are the GPU stages, and the only ones that cost real time. **They resume.**
+Each arm checks the results tree on Drive before predicting and skips itself if its
+structures are already there, so a session that dies — out of RAM, disconnected, timed out —
+costs only the arm it was working on rather than everything before it. Reconnect, re-run
+sections 1 to 3, then 5 to 7 again: finished arms print `already on disk — skipping` and the
+run continues where it stopped. `--force` redoes an arm anyway.
+
+If RAM is what keeps ending the session, predict one target at a time by setting
+`TARGETS = ["8QF4"]` in section 3 and working through them in turn.
 """, concise="""
 ## 5 · Stage 0 — global docking (baseline arm)
 
@@ -294,9 +299,16 @@ Stock, unpatched Boltz-2: the null hypothesis both modified arms are measured ag
 the source of the docked poses they build on. `--steered` adds a second baseline using
 Boltz's own `--use_potentials`, separating "steering helps" from "*our* steering helps".
 
-Sections 5 to 7 are the GPU stages, and the only ones that cost real time. If `RESULTS`
-already points at a tree of predictions — an interrupted session, or a copy saved to Drive
-by the last cell — skip them and carry on at section 8.
+Sections 5 to 7 are the GPU stages, and the only ones that cost real time.
+
+**These sections resume.** Every arm checks Drive first and skips itself if its structures
+are already there, so a session that dies — out of RAM, disconnected, timed out — costs only
+the arm it was working on. Reconnect, re-run sections 1 to 3, and run 5 to 7 again: finished
+arms print `already on disk — skipping` and the run continues from where it stopped. Pass
+`--force` to redo an arm anyway.
+
+If RAM is the thing killing the session, predict one target at a time by setting
+`TARGETS = ["8QF4"]` in section 3 and working through them.
 """),
 code("!python scripts/01_global_dock.py {target_args} --samples {SAMPLES} --steered --results {RESULTS}"),
 
@@ -740,9 +752,11 @@ files.download(f"/content/results_{JOB_NAME}.zip")
 """),
 
 md("""
-## 12 · Keep a copy on Drive
+## 12 · The run on Drive
 
-Copies the whole run into a folder named after `JOB_NAME`. Drive outlives the VM, which a
+`RESULTS` already points at Drive, so this is a check rather than a copy: it reports what is
+there and confirms a later session can pick it up. If `RESULTS` was set back to the VM's own
+`results`, this copies the run into a folder named after `JOB_NAME`. Drive outlives the VM, which a
 download to a laptop also does — but this one closes the loop: point `RESULTS` at the copy
 in section 3 and a later session reads these predictions instead of making them again,
 skipping sections 5 to 7 entirely.
@@ -754,23 +768,26 @@ structure paths recorded in `samples.csv` onto `RESULTS`, so a tree read from it
 still resolves; re-running section 8 against the new path rewrites them properly.
 """),
 code("""
-from google.colab import drive
-drive.mount("/content/drive")
-
 import pathlib, shutil
 
-DRIVE_DIR = pathlib.Path("/content/drive/MyDrive/boltz-cdr") / JOB_NAME
-if (DRIVE_DIR / "results").exists():
+DRIVE_DIR = pathlib.Path(DRIVE_ROOT) / JOB_NAME
+
+if pathlib.Path(RESULTS).resolve() == (DRIVE_DIR / "results").resolve():
+    n = len(list(pathlib.Path(RESULTS).glob("*/*/structures/*.cif")))
+    print(f"Nothing to copy — RESULTS already lives on Drive, holding {n} structures:")
+    print(f"    {RESULTS}")
+elif (DRIVE_DIR / "results").exists():
     print(f"{DRIVE_DIR}/results already exists — change JOB_NAME to keep both runs.")
 else:
+    from google.colab import drive
+    drive.mount("/content/drive")
     DRIVE_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copytree(RESULTS, DRIVE_DIR / "results")
     print("copied", RESULTS, "->", DRIVE_DIR / "results")
 
 print()
-print("To reuse these predictions in a later session, set this in section 3 and run")
-print("sections 1-3, then skip to section 8:")
-print(f'    RESULTS = "{DRIVE_DIR}/results"')
+print("A later session reads these predictions by keeping the same JOB_NAME. Finished arms")
+print("are skipped, so sections 5-7 only redo what is missing.")
 """),
 ]
 
@@ -806,30 +823,5 @@ def write(path: str, resolved: list) -> None:
     print(f"wrote {path}: {len(resolved)} cells, {prose:,} characters of prose")
 
 
-def saved_outputs(resolved: list) -> list:
-    """The shipped notebook with RESULTS repointed at a run already saved on Drive.
-
-    One substituted line, applied to the built cells rather than maintained separately, so
-    this variant cannot drift from the notebook it is a copy of.
-    """
-    out, swapped = [], 0
-    for cell in resolved:
-        cell = dict(cell)
-        source = "".join(cell["source"])
-        if 'RESULTS = "results"' in source:
-            source = source.replace(
-                'RESULTS = "results"',
-                f'RESULTS = "{SAVED_RESULTS}"   # a run already on Drive: skip sections 5-7',
-            )
-            cell["source"] = lines(source)
-            swapped += 1
-        out.append(cell)
-    if swapped != 1:
-        msg = f"expected to repoint RESULTS in exactly one cell, did {swapped}"
-        raise RuntimeError(msg)
-    return out
-
-
 write(FULL, variant(concise=False))
 write(CONCISE, variant(concise=True))
-write(SAVED, saved_outputs(variant(concise=True)))

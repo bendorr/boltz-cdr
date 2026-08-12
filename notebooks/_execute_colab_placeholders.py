@@ -5,8 +5,8 @@ outputs are meant to be produced by whoever runs them. The visualization section
 part worth committing already drawn, so section 9 is not a pair of blank cells in the
 repository. This runs exactly those cells — the loader, the structural overlay and the
 conformation landscape — with `EXAMPLE_ENSEMBLE` forced on, so they draw the twenty committed
-NMR models instead of predictions that do not exist yet. Both notebooks are handled because
-they are built from one set of cells and differ only in their prose.
+NMR models instead of predictions that do not exist yet. Both notebooks are handled because they are
+built from one set of cells and differ only in their prose.
 
 The flag is flipped in memory only. What gets written back is the notebook with its source
 unchanged (`EXAMPLE_ENSEMBLE = False`) and placeholder outputs attached, which is the state
@@ -32,7 +32,6 @@ from _build_overlay_stills import attach_still
 NOTEBOOKS = [
     pathlib.Path("notebooks/colab_boltz_cdr.ipynb"),                # ships
     pathlib.Path("notebooks/colab_boltz_cdr_long.ipynb"),           # local, gitignored
-    pathlib.Path("notebooks/colab_boltz_cdr_savedOutputs.ipynb"),   # local, gitignored
 ]
 FLAG = "EXAMPLE_ENSEMBLE = False"
 CONFIG_MARKER = "DEMO_TARGET = TARGETS[0]"

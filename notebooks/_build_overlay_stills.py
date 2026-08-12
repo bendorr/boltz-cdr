@@ -45,7 +45,6 @@ STILLS = {
             "cdr_ensemble_visualization.ipynb",
             "colab_boltz_cdr.ipynb",
             "colab_boltz_cdr_long.ipynb",
-            "colab_boltz_cdr_savedOutputs.ipynb",
         ],
         "loader": lambda: load_models(fetch_cif("9KFW", "data/pdb")),
     },

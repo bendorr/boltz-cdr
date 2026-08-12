@@ -22,6 +22,7 @@ import argparse
 from _common import (
     DEFAULT_RESULTS,
     add_cdr_residues_argument,
+    already_complete,
     arm_dir,
     isolated_arm,
     load_targets,
@@ -59,6 +60,8 @@ def main() -> int:
     parser.add_argument("--target", action="append", dest="targets")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--results", default=str(DEFAULT_RESULTS))
+    parser.add_argument("--force", action="store_true",
+                        help="re-predict arms that already have structures on disk")
     parser.add_argument("--top-k", type=int, default=2,
                         help="how many Stage-0 poses to build templates from")
     parser.add_argument("--samples", type=int, default=8)
@@ -100,6 +103,8 @@ def main() -> int:
         builders = [("armA", True)] + ([] if args.no_control else [("armA_control", False)])
         for arm, mask in builders:
             out = arm_dir(args.results, target.id, arm)
+            if already_complete(out, f"{target.id} / {arm}", force=args.force):
+                continue
             records = []
 
             with isolated_arm(out, f"{target.id} / {arm}"):

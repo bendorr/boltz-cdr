@@ -31,6 +31,7 @@ import torch
 from _common import (
     DEFAULT_RESULTS,
     add_cdr_residues_argument,
+    already_complete,
     arm_dir,
     isolated_arm,
     load_targets,
@@ -65,6 +66,8 @@ def main() -> int:
     parser.add_argument("--target", action="append", dest="targets")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--results", default=str(DEFAULT_RESULTS))
+    parser.add_argument("--force", action="store_true",
+                        help="re-predict arms that already have structures on disk")
     parser.add_argument("--sub-arm", action="append", dest="sub_arms", choices=SUB_ARMS)
     parser.add_argument("--samples", type=int, default=8)
     parser.add_argument("--seed", type=int, default=200)
@@ -115,6 +118,8 @@ def main() -> int:
 
             out = arm_dir(args.results, target.id, sub_arm)
             print(f"\n=== {target.id} / {sub_arm} -> {out}")
+            if already_complete(out, f"{target.id} / {sub_arm}", force=args.force):
+                continue
 
             with isolated_arm(out, f"{target.id} / {sub_arm}"):
 

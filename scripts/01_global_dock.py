@@ -21,7 +21,14 @@ from __future__ import annotations
 
 import argparse
 
-from _common import DEFAULT_RESULTS, arm_dir, load_targets, require_boltz, write_json
+from _common import (
+    DEFAULT_RESULTS,
+    already_complete,
+    arm_dir,
+    load_targets,
+    require_boltz,
+    write_json,
+)
 from boltz_cdr.pdb_io import (
     load_predicted_complex,
     with_canonical_chain_ids,
@@ -35,6 +42,8 @@ def main() -> int:
     parser.add_argument("--target", action="append", dest="targets")
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--results", default=str(DEFAULT_RESULTS))
+    parser.add_argument("--force", action="store_true",
+                        help="re-predict arms that already have structures on disk")
     parser.add_argument("--samples", type=int, default=8,
                         help="diffusion samples per run (Boltz's --diffusion_samples)")
     parser.add_argument("--seed", type=int, default=0)
@@ -65,6 +74,8 @@ def main() -> int:
         for arm, use_potentials in arms:
             out = arm_dir(args.results, target.id, arm)
             print(f"\n=== {target.id} / {arm} -> {out}")
+            if already_complete(out, f"{target.id} / {arm}", force=args.force):
+                continue
 
             spec = write_boltz_yaml(
                 out / "input.yaml",

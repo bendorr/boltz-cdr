@@ -166,6 +166,35 @@ def isolated_arm(out: str | Path, label: str):
         print(f"    traceback written to {out / 'error.txt'}")
 
 
+def already_complete(out: str | Path, label: str, *, force: bool = False) -> bool:
+    """True when this arm has already been predicted and its structures are still there.
+
+    A Colab VM dies for reasons that have nothing to do with the pipeline — the session ran
+    out of RAM partway through the second target, and every prediction before it was lost.
+    With the results tree on Drive, a stage that skips what is already on disk turns a crash
+    into a pause: rerun the same cell and it carries on from the first arm that has no
+    output.
+
+    The manifest is written last and only after every structure has been collected, so its
+    presence with a non-empty model list is the completion marker. The structure files are
+    checked too, since a Drive copy can arrive without them.
+    """
+    if force:
+        return False
+    manifest = Path(out) / "manifest.json"
+    if not manifest.exists():
+        return False
+    try:
+        records = read_json(manifest).get("models", [])
+    except (json.JSONDecodeError, OSError):
+        return False
+    if not records or not all(Path(r.get("structure", "")).exists() for r in records):
+        return False
+    print(f"  {label}: {len(records)} structures already on disk — skipping "
+          f"(pass --force to redo)")
+    return True
+
+
 def warn_if_empty(records: list, label: str) -> None:
     """An arm that produces nothing has failed, even when nothing raised.
 
