@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import sys
+import textwrap
+import traceback
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -139,6 +142,39 @@ def load_targets(
         msg = f"targets not found in {path}: {sorted(wanted - found)}"
         raise KeyError(msg)
     return targets
+
+
+@contextmanager
+def isolated_arm(out: str | Path, label: str):
+    """Run one arm; on failure record the traceback beside its outputs and carry on.
+
+    Without this a stage dies on whichever arm fails first and takes every remaining target
+    with it, leaving no record of why — which is how a run ends with one target holding four
+    arms, two holding two, and nothing on disk to explain the difference. The traceback is
+    both printed and written to `error.txt` in the arm's own directory, so it survives the
+    notebook session that produced it.
+    """
+    out = Path(out)
+    try:
+        yield
+    except Exception:  # noqa: BLE001 - the point is to let the next arm run
+        out.mkdir(parents=True, exist_ok=True)
+        report = traceback.format_exc()
+        (out / "error.txt").write_text(report)
+        print(f"    FAILED: {label}")
+        print(textwrap.indent(report.rstrip(), "    "))
+        print(f"    traceback written to {out / 'error.txt'}")
+
+
+def warn_if_empty(records: list, label: str) -> None:
+    """An arm that produces nothing has failed, even when nothing raised.
+
+    Boltz drops a record it cannot parse and still exits cleanly, so a malformed input shows
+    up as a successful run with an empty manifest rather than as an error.
+    """
+    if not records:
+        print(f"    WARNING: {label} produced no structures — the prediction ran but "
+              f"returned nothing. Check the input Boltz was given.")
 
 
 def arm_dir(results: str | Path, target_id: str, arm: str) -> Path:

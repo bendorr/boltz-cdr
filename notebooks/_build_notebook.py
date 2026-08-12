@@ -342,6 +342,10 @@ Three sub-arms isolating each lever:
 `armB_guided` is where the backward pass runs inside the sampler: at every guidance step
 Boltz calls `compute_gradient`, which evaluates our energy under `torch.enable_grad()` and
 returns `dE/dx` masked to the CDR atoms.
+
+Each target and sub-arm is isolated: one that raises writes its traceback to
+`<RESULTS>/<target>/<arm>/error.txt` and the rest still run, rather than the failure taking
+the remaining targets with it. An arm that finishes with no structures says so too.
 """),
 code("""
 !python scripts/03_arm_b_diffusion_resample.py {target_args} --samples {SAMPLES} \\

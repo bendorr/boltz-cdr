@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import tempfile
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -297,3 +299,43 @@ def test_predicted_complex_role_assignment_then_canonicalization(native_complex,
     final = load_complex(path, "A", "B")
     assert final.antibody.seq == native_complex.antibody.seq
     assert final.antigen.seq == native_complex.antigen.seq
+
+
+def test_written_template_carries_its_polymer_sequence(native_complex):
+    """A template with no `_entity_poly_seq` is silently useless to Boltz.
+
+    gemmi's `setup_entities` leaves `full_sequence` empty, and Boltz's template parser
+    aligns exactly that against the polymer — so the record is dropped, the prediction
+    returns nothing, and the arm reports success with an empty manifest. This is the bug
+    that cost Arm A an entire run.
+    """
+    import gemmi
+
+    from boltz_cdr.cdr import annotate_vhh
+    from boltz_cdr.templates import build_cdr_masked_template, build_full_template
+
+    annotation = annotate_vhh(native_complex.antibody.seq)
+    with tempfile.TemporaryDirectory() as tmp:
+        made = {
+            "masked": build_cdr_masked_template(
+                native_complex, annotation, Path(tmp) / "masked.cif"
+            ),
+            "full": build_full_template(native_complex, Path(tmp) / "full.cif"),
+        }
+        for label, spec in made.items():
+            path = Path(getattr(spec, "path", spec))
+            assert "_entity_poly_seq" in path.read_text(), f"{label}: category missing"
+
+            structure = gemmi.read_structure(str(path))
+            polymers = [
+                e for e in structure.entities
+                if e.entity_type == gemmi.EntityType.Polymer
+            ]
+            assert polymers, f"{label}: no polymer entity"
+            for entity in polymers:
+                assert len(entity.full_sequence) > 0, (
+                    f"{label}: entity {entity.name} has an empty sequence, which is what "
+                    f"Boltz reads"
+                )
+                span = structure[0].get_subchain(entity.subchains[0])
+                assert len(entity.full_sequence) == len(span)

@@ -221,8 +221,15 @@ def make_cdr_potential(cfg: CDRGuidanceConfig, parameters: dict | None = None):
             self._cache: dict[int, CDRAtomSelection] = {}
 
         def _selection(self, feats: dict) -> CDRAtomSelection:
-            # feats is rebuilt per prediction, not per step; cache on identity.
-            key = id(feats)
+            """Resolve once per system, not once per diffusion step.
+
+            Keyed on the shape and device of the atom/token map rather than `id(feats)`:
+            an address is reused once the dict it belonged to is collected, which would
+            hand a later prediction a selection built for an earlier one, with indices
+            that may not even be in range.
+            """
+            a2t = feats["atom_to_token"]
+            key = (tuple(a2t.shape), str(a2t.device))
             if key not in self._cache:
                 self._cache[key] = resolve_selection(feats, self.config)
             return self._cache[key]

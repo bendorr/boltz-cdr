@@ -341,6 +341,24 @@ def write_complex_cif(cx: Complex, path: str | Path, *, name: str | None = None)
     st.add_model(model)
     st.setup_entities()
 
+    # `setup_entities` groups chains into entities but leaves `full_sequence` empty, so the
+    # file goes out with no `_entity_poly_seq` category. Anything that reads the polymer
+    # sequence through gemmi then sees a zero-length sequence — including Boltz, whose
+    # template parser aligns `entity.full_sequence` against the polymer and drops the record
+    # when the alignment has nothing to match. That is silent: the template is accepted, the
+    # prediction produces no models, and the arm reports success with an empty result.
+    for entity in st.entities:
+        if entity.entity_type != gemmi.EntityType.Polymer:
+            continue
+        residues = [
+            residue.name
+            for subchain in entity.subchains
+            for residue in st[0].get_subchain(subchain)
+        ]
+        if residues:
+            entity.full_sequence = residues
+    st.assign_label_seq_id()
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     st.make_mmcif_document().write_file(str(path))

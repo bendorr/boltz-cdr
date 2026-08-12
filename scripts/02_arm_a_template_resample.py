@@ -23,10 +23,12 @@ from _common import (
     DEFAULT_RESULTS,
     add_cdr_residues_argument,
     arm_dir,
+    isolated_arm,
     load_targets,
     main_guard,
     read_json,
     require_boltz,
+    warn_if_empty,
     write_json,
 )
 from boltz_cdr.pdb_io import (
@@ -100,92 +102,94 @@ def main() -> int:
             out = arm_dir(args.results, target.id, arm)
             records = []
 
-            for rank, source in enumerate(ranked):
-                docked = load_complex(
-                    source["structure"], ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID,
-                    name=f"{target.id}_pose{rank}",
-                )
-                # A user CDR definition is authoritative and is carried across to the
-                # predicted chain; without one the annotator re-runs on the prediction's
-                # own sequence, which may differ in length from the crystal construct.
-                annotation = target.annotation_for(docked.antibody.seq)
-
-                template = (
-                    build_cdr_masked_template(
-                        docked, annotation, out / "templates" / f"pose{rank}.cif",
-                        mask_cdrs=mask_cdrs, flank=args.flank,
+            with isolated_arm(out, f"{target.id} / {arm}"):
+                for rank, source in enumerate(ranked):
+                    docked = load_complex(
+                        source["structure"], ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID,
+                        name=f"{target.id}_pose{rank}",
                     )
-                    if mask
-                    else build_full_template(docked, out / "templates" / f"pose{rank}.cif")
-                )
-                print(
-                    f"    {arm} pose{rank}: template {template.path.name}, "
-                    f"{template.n_masked_residues} residues masked"
-                )
+                    # A user CDR definition is authoritative and is carried across to the
+                    # predicted chain; without one the annotator re-runs on the prediction's
+                    # own sequence, which may differ in length from the crystal construct.
+                    annotation = target.annotation_for(docked.antibody.seq)
 
-                spec = write_boltz_yaml(
-                    out / f"input_pose{rank}.yaml",
-                    docked.antibody.seq,
-                    docked.antigen.seq,
-                    templates=[template],
-                    template_force=True,
-                    template_threshold=args.template_threshold,
-                )
-                run_prediction(
-                    spec.path,
-                    out / f"boltz_pose{rank}",
-                    diffusion_samples=args.samples,
-                    sampling_steps=args.sampling_steps,
-                    seed=args.seed + rank,
-                    use_msa_server=not args.no_msa_server,
-                    # `force: true` templates are enforced by Boltz's
-                    # TemplateReferencePotential, which is active whenever
-                    # contact_guidance_update is set — and that defaults to True.
-                    # --use_potentials is therefore not required here either.
-                    use_potentials=args.use_potentials,
-                    expect_patched=False,
-                )
-
-                for prediction in collect_predictions(out / f"boltz_pose{rank}"):
-                    structure = load_predicted_complex(
-                        prediction.structure_path, target.native,
-                        name=f"{target.id}_{arm}_p{rank}_m{prediction.model_index}",
+                    template = (
+                        build_cdr_masked_template(
+                            docked, annotation, out / "templates" / f"pose{rank}.cif",
+                            mask_cdrs=mask_cdrs, flank=args.flank,
+                        )
+                        if mask
+                        else build_full_template(docked, out / "templates" / f"pose{rank}.cif")
                     )
-                    canonical = (
-                        out / "structures" / f"pose{rank}_model_{prediction.model_index}.cif"
-                    )
-                    write_complex_cif(
-                    with_canonical_chain_ids(structure, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID),
-                    canonical,
-                )
-                    records.append(
-                        {
-                            "source_pose": rank,
-                            "source_structure": source["structure"],
-                            "model_index": prediction.model_index,
-                            "structure": str(canonical),
-                            "confidence": prediction.confidence(),
-                            "template": template.as_dict(),
-                        }
+                    print(
+                        f"    {arm} pose{rank}: template {template.path.name}, "
+                        f"{template.n_masked_residues} residues masked"
                     )
 
-            write_json(
-                out / "manifest.json",
-                {
-                    "target": target.id,
-                    "arm": arm,
-                    "settings": {
-                        "top_k": args.top_k,
-                        "diffusion_samples": args.samples,
-                        "mask_cdrs": list(mask_cdrs) if mask else [],
-                        "flank": args.flank,
-                        "template_threshold": args.template_threshold,
+                    spec = write_boltz_yaml(
+                        out / f"input_pose{rank}.yaml",
+                        docked.antibody.seq,
+                        docked.antigen.seq,
+                        templates=[template],
+                        template_force=True,
+                        template_threshold=args.template_threshold,
+                    )
+                    run_prediction(
+                        spec.path,
+                        out / f"boltz_pose{rank}",
+                        diffusion_samples=args.samples,
+                        sampling_steps=args.sampling_steps,
+                        seed=args.seed + rank,
+                        use_msa_server=not args.no_msa_server,
+                        # `force: true` templates are enforced by Boltz's
+                        # TemplateReferencePotential, which is active whenever
+                        # contact_guidance_update is set — and that defaults to True.
+                        # --use_potentials is therefore not required here either.
+                        use_potentials=args.use_potentials,
+                        expect_patched=False,
+                    )
+
+                    for prediction in collect_predictions(out / f"boltz_pose{rank}"):
+                        structure = load_predicted_complex(
+                            prediction.structure_path, target.native,
+                            name=f"{target.id}_{arm}_p{rank}_m{prediction.model_index}",
+                        )
+                        canonical = (
+                            out / "structures" / f"pose{rank}_model_{prediction.model_index}.cif"
+                        )
+                        write_complex_cif(
+                        with_canonical_chain_ids(structure, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID),
+                        canonical,
+                    )
+                        records.append(
+                            {
+                                "source_pose": rank,
+                                "source_structure": source["structure"],
+                                "model_index": prediction.model_index,
+                                "structure": str(canonical),
+                                "confidence": prediction.confidence(),
+                                "template": template.as_dict(),
+                            }
+                        )
+
+                write_json(
+                    out / "manifest.json",
+                    {
+                        "target": target.id,
+                        "arm": arm,
+                        "settings": {
+                            "top_k": args.top_k,
+                            "diffusion_samples": args.samples,
+                            "mask_cdrs": list(mask_cdrs) if mask else [],
+                            "flank": args.flank,
+                            "template_threshold": args.template_threshold,
+                        },
+                        "environment": describe_environment(),
+                        "models": records,
                     },
-                    "environment": describe_environment(),
-                    "models": records,
-                },
-            )
-            print(f"    {arm}: {len(records)} structures")
+                )
+                print(f"    {arm}: {len(records)} structures")
+                warn_if_empty(records, f"{target.id} / {arm}")
 
     print("\nArm A complete.")
     return 0

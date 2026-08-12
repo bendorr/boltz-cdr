@@ -32,10 +32,12 @@ from _common import (
     DEFAULT_RESULTS,
     add_cdr_residues_argument,
     arm_dir,
+    isolated_arm,
     load_targets,
     main_guard,
     read_json,
     require_boltz,
+    warn_if_empty,
     write_json,
 )
 from boltz_cdr.metrics.contacts import epitope_residues
@@ -114,90 +116,94 @@ def main() -> int:
             out = arm_dir(args.results, target.id, sub_arm)
             print(f"\n=== {target.id} / {sub_arm} -> {out}")
 
-            # CDR spans for the sequence we are about to predict: the user's definition
-            # if they gave one, the automatic IMGT annotation otherwise.
-            annotation = target.annotation_for(target.antibody_sequence)
-            epitope = (
-                tuple(int(i) for i in epitope_residues(target.native))
-                if args.epitope_from_native
-                else None
-            )
-            guidance = CDRGuidanceConfig(
-                antibody_chain=ANTIBODY_ORDINAL,
-                antigen_chain=ANTIGEN_ORDINAL,
-                cdr_residues=tuple(int(i) for i in annotation.all_indices),
-                epitope_residues=epitope,
-                n_contacts=args.n_contacts,
-                contact_distance=args.contact_distance,
-            )
+            with isolated_arm(out, f"{target.id} / {sub_arm}"):
 
-            use_guidance = sub_arm == "armB_guided"
-            patch.uninstall()
-            status = patch.install(
-                guidance=guidance if use_guidance else None,
-                guidance_parameters={"guidance_weight": args.guidance_weight},
-            )
-            print(f"    {status}")
-
-            spec = write_boltz_yaml(
-                out / "input.yaml", target.antibody_sequence, target.antigen_sequence
-            )
-
-            sampling = build_sampling_config(sub_arm, args, target, annotation, stage0)
-
-            with patch.cdr_sampling(sampling):
-                run_prediction(
-                    spec.path,
-                    out / "boltz",
-                    diffusion_samples=args.samples,
-                    sampling_steps=args.sampling_steps,
-                    seed=args.seed,
-                    use_msa_server=not args.no_msa_server,
-                    use_potentials=args.use_potentials,
-                    expect_patched=True,
+                # CDR spans for the sequence we are about to predict: the user's definition
+                # if they gave one, the automatic IMGT annotation otherwise.
+                annotation = target.annotation_for(target.antibody_sequence)
+                epitope = (
+                    tuple(int(i) for i in epitope_residues(target.native))
+                    if args.epitope_from_native
+                    else None
+                )
+                guidance = CDRGuidanceConfig(
+                    antibody_chain=ANTIBODY_ORDINAL,
+                    antigen_chain=ANTIGEN_ORDINAL,
+                    cdr_residues=tuple(int(i) for i in annotation.all_indices),
+                    epitope_residues=epitope,
+                    n_contacts=args.n_contacts,
+                    contact_distance=args.contact_distance,
                 )
 
-            records = []
-            for prediction in collect_predictions(out / "boltz"):
-                structure = load_predicted_complex(
-                    prediction.structure_path, target.native,
-                    name=f"{target.id}_{sub_arm}_{prediction.model_index}",
+                use_guidance = sub_arm == "armB_guided"
+                patch.uninstall()
+                status = patch.install(
+                    guidance=guidance if use_guidance else None,
+                    guidance_parameters={"guidance_weight": args.guidance_weight},
                 )
-                canonical = out / "structures" / f"model_{prediction.model_index}.cif"
-                write_complex_cif(
-                    with_canonical_chain_ids(structure, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID),
-                    canonical,
+                print(f"    {status}")
+
+                spec = write_boltz_yaml(
+                    out / "input.yaml", target.antibody_sequence, target.antigen_sequence
                 )
-                records.append(
+
+                sampling = build_sampling_config(sub_arm, args, target, annotation, stage0)
+
+                with patch.cdr_sampling(sampling):
+                    run_prediction(
+                        spec.path,
+                        out / "boltz",
+                        diffusion_samples=args.samples,
+                        sampling_steps=args.sampling_steps,
+                        seed=args.seed,
+                        use_msa_server=not args.no_msa_server,
+                        use_potentials=args.use_potentials,
+                        expect_patched=True,
+                    )
+
+                records = []
+                for prediction in collect_predictions(out / "boltz"):
+                    structure = load_predicted_complex(
+                        prediction.structure_path, target.native,
+                        name=f"{target.id}_{sub_arm}_{prediction.model_index}",
+                    )
+                    canonical = out / "structures" / f"model_{prediction.model_index}.cif"
+                    write_complex_cif(
+                        with_canonical_chain_ids(structure, ANTIBODY_CHAIN_ID, ANTIGEN_CHAIN_ID),
+                        canonical,
+                    )
+                    records.append(
+                        {
+                            "model_index": prediction.model_index,
+                            "structure": str(canonical),
+                            "confidence": prediction.confidence(),
+                        }
+                    )
+
+                write_json(
+                    out / "manifest.json",
                     {
-                        "model_index": prediction.model_index,
-                        "structure": str(canonical),
-                        "confidence": prediction.confidence(),
-                    }
-                )
-
-            write_json(
-                out / "manifest.json",
-                {
-                    "target": target.id,
-                    "arm": sub_arm,
-                    "settings": {
-                        "diffusion_samples": args.samples,
-                        "seed": args.seed,
-                        "lambda_cdr": args.lambda_cdr if sub_arm != "armB_partial" else 1.0,
-                        "partial_sigma": args.partial_sigma if sub_arm == "armB_partial" else None,
-                        "guidance_weight": args.guidance_weight if use_guidance else None,
-                        "n_contacts": args.n_contacts,
-                        "epitope_directed": bool(epitope),
-                        "cdr_source": target.cdr_source,
-                        "cdr_spec": target.cdr_spec.as_dict() if target.cdr_spec else None,
-                        "cdr_residues": [int(i) for i in annotation.all_indices],
+                        "target": target.id,
+                        "arm": sub_arm,
+                        "settings": {
+                            "diffusion_samples": args.samples,
+                            "seed": args.seed,
+                            "lambda_cdr": args.lambda_cdr if sub_arm != "armB_partial" else 1.0,
+                            "partial_sigma": args.partial_sigma if sub_arm == "armB_partial" else None,
+                            "guidance_weight": args.guidance_weight if use_guidance else None,
+                            "n_contacts": args.n_contacts,
+                            "epitope_directed": bool(epitope),
+                            "cdr_source": target.cdr_source,
+                            "cdr_spec": target.cdr_spec.as_dict() if target.cdr_spec else None,
+                            "cdr_residues": [int(i) for i in annotation.all_indices],
+                        },
+                        "environment": describe_environment(),
+                        "models": records,
                     },
-                    "environment": describe_environment(),
-                    "models": records,
-                },
-            )
-            print(f"    {len(records)} structures")
+                )
+                print(f"    {len(records)} structures")
+                warn_if_empty(records, f"{target.id} / {sub_arm}")
+
             patch.uninstall()
 
     print("\nArm B complete.")
