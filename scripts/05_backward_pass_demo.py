@@ -33,7 +33,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
 from boltz_cdr.cdr import CDR_NAMES
 from boltz_cdr.cdr_spec import CDRSpec, CDRSpecError, annotation_for_chain
@@ -82,7 +83,11 @@ def banner(text: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", default="8QF4", choices=sorted(TARGETS))
-    parser.add_argument("--pdb-dir", default="data/pdb")
+    # Anchored to the repo rather than the shell's working directory, so the demo runs from
+    # anywhere and finds the structures already on disk instead of re-fetching them from RCSB.
+    # Every other script resolves its paths against `_common.ROOT` the same way; this one is
+    # standalone by design and cannot import `_common`.
+    parser.add_argument("--pdb-dir", default=str(ROOT / "data" / "pdb"))
     parser.add_argument("--displacement", type=float, default=6.0,
                         help="Angstroms to translate the nanobody by, to break the interface.")
     parser.add_argument("--steps", type=int, default=150)
