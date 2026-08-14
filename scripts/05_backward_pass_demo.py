@@ -2,23 +2,27 @@
 """Forward and backward pass demonstration for the CDR–epitope guidance potential.
 
 Runs on a laptop. No GPU, no Boltz weights, no network beyond fetching one crystal
-structure. Everything below operates on *real* coordinates from a real antibody–antigen
-complex rather than random tensors, so the numbers mean something.
+structure. Operates on real coordinates from a real antibody–antigen complex rather than
+random tensors.
 
 Six checks, in order:
 
-  1. FORWARD on the crystal structure. A correct flat-bottom potential must score a real
+  1. FORWARD on the crystal structure. A flat-bottom potential should score a real
      interface at ~0: every contact is already made, nothing is clashing.
   2. FORWARD on a broken interface. Translating the nanobody away must raise the energy.
   3. BACKWARD. Gradients must be finite, non-zero, and *exactly* zero outside the CDRs —
      the framework and antigen are not ours to move.
   4. Autograd vs finite differences. The gradient must match a central difference of the
      energy to numerical precision.
-  5. Guidance descent. Stepping down the gradient must actually restore the interface,
-     which is the only evidence that the potential is useful rather than merely
-     differentiable.
-  6. Structural verification. The restored interface is re-scored with the independent
-     evaluation metrics: contacts recovered, RMSD reduced, no clashes introduced.
+  5. Guidance descent. Stepping down the gradient should restore the contacts the
+     translation broke.
+  6. Structural verification. The result is re-scored with the independent evaluation
+     metrics: contacts recovered, clashes introduced or removed.
+
+What this does *not* show: the perturbation here is a translation off the epitope, and the
+errors Boltz-2 actually makes are rotations within an interface that is already formed. The
+attraction term is a distance threshold, so it is blind to those. See
+`cdr_interface_energy` and the run-2 analysis.
 
 Usage:
     python scripts/05_backward_pass_demo.py [--target 8QF4] [--displacement 6.0]
@@ -141,7 +145,7 @@ def main() -> int:
     banner("1. FORWARD PASS — native crystal structure")
     e_native = cdr_interface_energy(x_native, selection, config)
     print(f"E(native) = {e_native.item():.6e}")
-    print("expected ~0: the flat-bottom terms are all satisfied by a real interface.")
+    print("expected ~0: the flat-bottom terms are satisfied by a real interface.")
     assert torch.isfinite(e_native).all(), "energy is not finite on the native structure"
     assert e_native.item() < 0.1, "flat-bottom potential should be ~0 on a real interface"  # noqa: PLR2004
 
@@ -203,7 +207,7 @@ def main() -> int:
     assert max(errors) < 1e-4, "autograd disagrees with finite differences"  # noqa: PLR2004
 
     # ------------------------------------------------------------- 5. guidance descent
-    banner("5. GUIDANCE DESCENT — does the gradient actually fix the interface?")
+    banner("5. GUIDANCE DESCENT — stepping down the gradient")
     x = x_broken.clone()
     trajectory = []
     for step in range(args.steps):
@@ -263,36 +267,26 @@ def main() -> int:
             f"{row['epitope_recall']:>13.3f}{row['L-RMSD']:>10.2f}{row['clashes']:>10d}"
         )
     print(
-        f"\nThe potential's own objective is `n_contacts = {config.n_contacts}` CDR residues "
-        f"within {config.contact_distance} A, with no steric overlap. Read the first and "
-        f"last columns: that is the specification, and guidance met it."
-    )
-
-    print(
-        "\nfnat barely moves, and that is the specification working rather than failing: "
-        f"the native paratope buries ~20 residues, the potential is asked for only "
-        f"{config.n_contacts}, and the repulsion term simultaneously pushes atoms out of "
-        "the overlaps that a naive translation creates. A potential tuned to maximize fnat "
-        "would be a potential tuned to collapse every CDR onto the antigen, which is not a "
-        "physically sensible interface. The clash column is the unambiguous win."
+        f"\nObjective: {config.n_contacts} CDR residues within {config.contact_distance} A, "
+        f"no steric overlap. Columns 1 and 5 are that objective."
     )
     print(
-        "\nTwo caveats about this isolated demo, neither of which applies inside the "
-        "sampler:\n"
-        "  * Guidance moves CDR atoms only, so it cannot undo a rigid-body displacement of "
-        "the whole nanobody. L-RMSD stays at the displacement distance by construction; "
-        "re-forming contacts is what the potential is for, and rigid-body placement is the "
-        "network's job.\n"
-        "  * Pulling CDR atoms back toward the epitope while the framework stays fixed "
-        "stretches the loops, since nothing here enforces bond geometry. In the diffusion "
-        "loop the guidance update is one small nudge to an x0 prediction that the denoiser "
-        "immediately re-idealizes, and Boltz's own PoseBusters/connection potentials run "
-        "alongside ours."
+        f"fnat moves little because the objective is not fnat: the native paratope buries "
+        f"~20 residues and the potential asks for {config.n_contacts}. Maximizing fnat would "
+        "mean collapsing every CDR onto the antigen."
+    )
+    print(
+        "\nScope of this demo:\n"
+        "  * Guidance moves CDR atoms only, so it cannot undo a rigid-body displacement. "
+        "L-RMSD stays at the displacement distance by construction.\n"
+        "  * Nothing here enforces bond geometry, so pulling CDR atoms back against a fixed "
+        "framework stretches the loops. In the sampler the update is one nudge to an x0 "
+        "prediction that the denoiser re-idealizes, alongside Boltz's own potentials.\n"
+        "  * The perturbation is a translation off the epitope. Boltz-2's own errors are "
+        "rotations within a formed interface, which this objective does not see."
     )
 
     banner("ALL CHECKS PASSED")
-    print("forward pass: meaningful output   backward pass: gradients computed and verified")
-    print("The pipeline is end-to-end functional.")
     return 0
 
 
