@@ -736,6 +736,7 @@ def ensemble_view(
     show_context: bool = True,
     controls: bool = True,
     labels: list[str] | None = None,
+    groups: list[str] | None = None,
 ):
     """A py3Dmol view of the CDR loops of every member, on one shared framework.
 
@@ -769,6 +770,9 @@ def ensemble_view(
         bare `py3Dmol.view` is returned, styled to the options given.
     labels
         Names for the legend, one per member. Defaults to the member index.
+    groups
+        A group name per member — arm, target, anything. Each distinct name gets a
+        show/hide pair of buttons that acts on its members only.
     """
     try:
         import py3Dmol
@@ -844,8 +848,142 @@ def ensemble_view(
         by_element=color_side_chains_by_element,
         show_context=show_context,
         width=width,
+        groups=[groups[i] for i in order] if groups is not None else None,
     )
     return EnsembleView(html, view, len(order), colors=colors, labels=labels)
+
+
+def multi_ensemble_view(
+    sets: dict[str, tuple[list[EnsembleMember], CDRAnnotation]],
+    *,
+    values: dict[str, np.ndarray] | None = None,
+    labels: dict[str, list[str]] | None = None,
+    cdrs: tuple[str, ...] = CDR_NAMES,
+    align_on: str = "framework",
+    width: int = 900,
+    height: int = 650,
+    max_overlay: int | None = None,
+    color_by: str = "similarity",
+    side_chains: bool = False,
+    color_side_chains_by_element: bool = True,
+    show_context: bool = True,
+    spacing: float = 12.0,
+):
+    """Several ensembles in one canvas, each superposed on its own framework.
+
+    `ensemble_view` overlays members of a single ensemble, which requires one shared
+    sequence and one annotation. Different targets have neither, so there is no common
+    frame to superpose them onto and pretending otherwise would be misleading. Each set
+    is therefore superposed within itself and then translated to its own slot along x,
+    laid out left to right in the order given — three panels sharing one camera rather
+    than one overlay.
+
+    The controls gain a show/hide pair per set, so a whole target can be taken out of the
+    picture in one click while the others stay put.
+
+    Parameters
+    ----------
+    sets
+        `{name: (structures, annotation)}`. Insertion order is the layout order.
+    values, labels
+        Per-set, keyed by the same names. `values` colors and annotates the legend;
+        `labels` names the members.
+    spacing
+        Gap in angstroms between the bounding boxes of adjacent sets.
+    """
+    try:
+        import py3Dmol
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        msg = "py3Dmol is required for the structural view; `pip install py3Dmol`."
+        raise ImportError(msg) from exc
+
+    if not sets:
+        msg = "need at least one ensemble"
+        raise ValueError(msg)
+
+    view = py3Dmol.view(width=width, height=height)
+    context_models, member_models, all_colors, all_labels = [], [], [], []
+    all_groups: list[str] = []
+    legend_values: list[float | None] = []
+    model_i, cursor = 0, 0.0
+
+    for name, (structures, annotation) in sets.items():
+        ensemble = superpose_cdr_ensemble(structures, annotation, cdrs=cdrs, align_on=align_on)
+        loop_residues = ensemble.residue_indices
+
+        order = list(range(len(structures)))
+        if max_overlay is not None and len(order) > max_overlay:
+            order = list(np.linspace(0, len(structures) - 1, max_overlay).astype(int))
+
+        set_values = None if values is None else np.asarray(values[name], dtype=float)
+        colors = _resolve_colors(color_by, ensemble, order, set_values)
+
+        # Slide this set clear of the previous one. The offset is applied to the context
+        # and to every member alike, so geometry within a set is untouched. The span has
+        # to cover the whole complex, not just the antibody: the antigen routinely
+        # extends past it, and measuring the antibody alone packs the sets so tightly
+        # that they interpenetrate.
+        reference = structures[0]
+        chains = [c for c in (_antibody(reference), _antigen(reference)) if c is not None]
+        span = np.concatenate([c.coords[:, 0] for c in chains])
+        offset = np.array([cursor - span.min(), 0.0, 0.0])
+        cursor += span.max() - span.min() + spacing
+
+        view.addModel(complex_to_pdb(_translated(reference, offset)), "pdb")
+        context_models.append(model_i)
+        model_i += 1
+
+        for slot, index in enumerate(order):
+            moved = _in_reference_frame(structures[index], reference, annotation, align_on)
+            view.addModel(
+                complex_to_pdb(_translated(moved, offset), residue_subset=loop_residues), "pdb"
+            )
+            for style in _member_styles(
+                colors[slot], side_chains, color_side_chains_by_element
+            ):
+                view.addStyle({"model": model_i, **style["sel"]}, style["style"])
+            member_models.append(model_i)
+            model_i += 1
+
+            all_groups.append(name)
+            all_colors.append(colors[slot])
+            if labels is not None:
+                all_labels.append(str(labels[name][index]))
+            else:
+                all_labels.append(f"{name} {slot + 1}")
+            if set_values is None:
+                legend_values.append(None)
+            else:
+                v = float(set_values[index])
+                legend_values.append(v if np.isfinite(v) else None)
+
+    view.zoomTo()
+
+    html = _view_with_controls(
+        view,
+        colors=all_colors,
+        labels=all_labels,
+        legend_values=legend_values if values is not None else None,
+        side_chains=side_chains,
+        by_element=color_side_chains_by_element,
+        show_context=show_context,
+        width=width,
+        groups=all_groups,
+        context_models=context_models,
+        member_models=member_models,
+    )
+    return EnsembleView(html, view, len(all_colors), colors=all_colors, labels=all_labels)
+
+
+def _translated(structure: EnsembleMember, offset: np.ndarray) -> EnsembleMember:
+    """Copy of `structure` shifted by `offset`, used to lay ensembles out side by side."""
+    import copy
+
+    moved = copy.deepcopy(structure)
+    for chain in (_antibody(moved), _antigen(moved)):
+        if chain is not None:
+            chain.coords = chain.coords + offset
+    return moved
 
 
 def _resolve_colors(color_by: str, ensemble, order, values) -> list[str]:
@@ -892,6 +1030,9 @@ def _view_with_controls(
     by_element: bool,
     show_context: bool,
     width: int,
+    groups: list[str] | None = None,
+    context_models: list[int] | None = None,
+    member_models: list[int] | None = None,
 ) -> str:
     """Wrap a py3Dmol view in HTML controls driven by plain JavaScript.
 
@@ -899,6 +1040,11 @@ def _view_with_controls(
     callback. Chaining a second callback on the same promise therefore runs after the
     viewer exists, whether or not 3Dmol.js has already been fetched, which is what lets
     the controls attach without ipywidgets or a live kernel.
+
+    `groups` names a group per member and adds a show/hide pair of buttons for each
+    distinct name, in first-appearance order. `context_models` and `member_models` say
+    which py3Dmol model indices hold the muted context and the members; the defaults are
+    the single-ensemble layout of model 0 plus members 1..n.
     """
     import json
     import re
@@ -909,17 +1055,36 @@ def _view_with_controls(
         return base
     uid = match.group(1)
 
+    if context_models is None:
+        context_models = [0]
+    if member_models is None:
+        member_models = list(range(1, len(colors) + 1))
+
     rows = []
     for i in range(len(labels)):
         suffix = ""
         if legend_values is not None and legend_values[i] is not None:
             suffix = f' <span class="bc-val">{legend_values[i]:.3g}</span>'
         rows.append(
-            f'<label class="bc-row"><input type="checkbox" checked '
+            f'<label class="bc-row" data-bc-group="{groups[i] if groups else ""}">'
+            f'<input type="checkbox" checked '
             f'onchange="BC{uid}.member({i}, this.checked)">'
             f'<span class="bc-swatch" style="background:{colors[i]}"></span>'
             f'<span class="bc-name">{labels[i]}</span>{suffix}</label>'
         )
+
+    group_bar = ""
+    if groups:
+        names = list(dict.fromkeys(groups))
+        chips = "".join(
+            f'<span class="bc-group"><span class="bc-gname">{name}</span>'
+            f'<button class="bc-btn" onclick="BC{uid}.group({json.dumps(name)}, true)">'
+            f"show</button>"
+            f'<button class="bc-btn" onclick="BC{uid}.group({json.dumps(name)}, false)">'
+            f"hide</button></span>"
+            for name in names
+        )
+        group_bar = f'<div class="bc-opts bc-groups">{chips}</div>'
 
     def checked(flag: bool) -> str:
         return " checked" if flag else ""
@@ -952,6 +1117,9 @@ def _view_with_controls(
 .bc-val{{color:#888;font-variant-numeric:tabular-nums;margin-left:auto;padding-left:4px}}
 .bc-btn{{font:inherit;padding:0 6px;border:1px solid #ccc;border-radius:3px;
   background:#fafafa;color:#000;cursor:pointer;line-height:1.6}}
+.bc-groups{{gap:14px}}
+.bc-group{{display:flex;align-items:center;gap:4px}}
+.bc-gname{{font-weight:600}}
 </style>
 <div class="bc-wrap">
   <div class="bc-opts">
@@ -964,11 +1132,15 @@ def _view_with_controls(
     <button class="bc-btn" onclick="BC{uid}.all(true)">show all</button>
     <button class="bc-btn" onclick="BC{uid}.all(false)">hide all</button>
   </div>
-  <div class="bc-legend">{"".join(rows)}</div>
+  {group_bar}
+  <div class="bc-legend" id="bc-legend-{uid}">{"".join(rows)}</div>
 </div>
 <script>
 var BC{uid} = (function() {{
   var colors  = {json.dumps(colors)};
+  var groups  = {json.dumps(groups or [])};
+  var CTX     = {json.dumps(list(context_models))};
+  var MEM     = {json.dumps(list(member_models))};
   var visible = colors.map(function() {{ return true; }});
   var opts = {{ side: {json.dumps(side_chains)}, elem: {json.dumps(by_element)},
                 context: {json.dumps(show_context)} }};
@@ -980,10 +1152,12 @@ var BC{uid} = (function() {{
   function restyle() {{
     var v = viewer();
     if (!v) return;
-    v.setStyle({{model: 0}}, opts.context
-      ? {{cartoon: {{color: "lightgray", opacity: 0.55}}}} : {{}});
+    for (var c = 0; c < CTX.length; c++) {{
+      v.setStyle({{model: CTX[c]}}, opts.context
+        ? {{cartoon: {{color: "lightgray", opacity: 0.55}}}} : {{}});
+    }}
     for (var i = 0; i < colors.length; i++) {{
-      var m = i + 1;
+      var m = MEM[i];
       v.setStyle({{model: m}}, {{}});
       if (!visible[i]) continue;
       v.addStyle({{model: m, atom: BB}},
@@ -1003,6 +1177,13 @@ var BC{uid} = (function() {{
     v.render();
   }}
 
+  // The checkbox for member i, found by position within this viewer's own legend so
+  // that several viewers in one notebook do not reach into each other's controls.
+  function boxes() {{
+    var wrap = document.getElementById("bc-legend-{uid}");
+    return wrap ? wrap.querySelectorAll(".bc-row input") : [];
+  }}
+
   var api = {{
     member: function(i, on) {{ visible[i] = on; restyle(); }},
     sideChains: function(on) {{ opts.side = on; restyle(); }},
@@ -1010,8 +1191,19 @@ var BC{uid} = (function() {{
     context: function(on) {{ opts.context = on; restyle(); }},
     all: function(on) {{
       for (var i = 0; i < visible.length; i++) visible[i] = on;
-      var boxes = document.querySelectorAll(".bc-legend input");
-      for (var k = 0; k < boxes.length; k++) boxes[k].checked = on;
+      var b = boxes();
+      for (var k = 0; k < b.length; k++) b[k].checked = on;
+      restyle();
+    }},
+    // Show or hide every member of one group — one target, one arm, whatever the
+    // caller grouped by — leaving the other groups as they are.
+    group: function(name, on) {{
+      var b = boxes();
+      for (var i = 0; i < visible.length; i++) {{
+        if (groups[i] !== name) continue;
+        visible[i] = on;
+        if (b[i]) b[i].checked = on;
+      }}
       restyle();
     }},
     restyle: restyle

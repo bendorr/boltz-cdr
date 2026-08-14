@@ -760,3 +760,92 @@ def test_landscape_key_names_both_color_channels(native_complex):
     assert "DockQ" in key, "the ring must name the plotted metric"
     assert "6 models" in key
     matplotlib.pyplot.close(fig)
+
+
+def test_group_toggles_appear_and_address_their_own_members(native_complex):
+    """One show/hide pair per distinct group, and the group index is what drives them."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=6)
+    groups = ["8QF4", "8QF4", "9EZU", "9EZU", "9HUR", "9HUR"]
+    html = ensemble_view(members, annotation, groups=groups).write_html()
+
+    for name in ("8QF4", "9EZU", "9HUR"):
+        assert f'.group("{name}", true)' in html
+        assert f'.group("{name}", false)' in html
+    # The array the JS reads must match the members actually drawn, in order.
+    assert '"8QF4", "8QF4", "9EZU", "9EZU", "9HUR", "9HUR"' in html
+
+
+def test_group_list_is_thinned_with_the_ensemble(native_complex):
+    """`max_overlay` drops members; their group entries have to go with them."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=8)
+    view = ensemble_view(members, annotation, groups=["a"] * 4 + ["b"] * 4, max_overlay=3)
+    import json
+    import re
+
+    drawn = json.loads(re.search(r"var groups\s*=\s*(\[.*?\]);", view.write_html()).group(1))
+    assert len(drawn) == len(view.colors) == 3
+
+
+def test_multi_ensemble_view_lays_sets_out_without_overlapping(native_complex):
+    """Each set keeps its own geometry and is translated clear of its neighbour."""
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import multi_ensemble_view
+
+    left, annotation = perturbed_ensemble(native_complex, n=3)
+    right, _ = perturbed_ensemble(native_complex, n=2)
+    view = multi_ensemble_view({"left": (left, annotation), "right": (right, annotation)})
+
+    html = view.write_html()
+    # Two context models plus five members.
+    assert html.count("addModel") == 2 + 5
+    assert view.n_members == 5
+    for name in ("left", "right"):
+        assert f'.group("{name}", true)' in html
+    # The context models are no longer just model 0, and the JS must be told so.
+    assert "var CTX     = [0, 4]" in html
+    assert "var MEM     = [1, 2, 3, 5, 6]" in html
+
+
+def test_multi_ensemble_view_rejects_an_empty_mapping():
+    pytest.importorskip("py3Dmol")
+    from boltz_cdr.visualize import multi_ensemble_view
+
+    with pytest.raises(ValueError, match="at least one ensemble"):
+        multi_ensemble_view({})
+
+
+def test_multi_ensemble_view_sets_do_not_interpenetrate(native_complex):
+    """The layout gap is measured on the whole complex, not just the antibody.
+
+    Measuring the antibody alone packs the sets tightly enough that the antigen of one
+    reaches into the next, which is what this asserts against.
+    """
+    pytest.importorskip("py3Dmol")
+    import re
+
+    from boltz_cdr.visualize import multi_ensemble_view
+
+    members, annotation = perturbed_ensemble(native_complex, n=2)
+    spacing = 12.0
+    view = multi_ensemble_view(
+        {"a": (members, annotation), "b": (members, annotation)}, spacing=spacing
+    )
+    blocks = re.findall(
+        r'addModel\("(.*?)","pdb"', view.write_html(), flags=re.S
+    )
+    contexts = [blocks[0], blocks[3]]  # one context plus two members per set
+    ranges = []
+    for block in contexts:
+        # py3Dmol embeds the PDB inside a JS string literal, so the newlines are the
+        # two characters backslash-n rather than real ones.
+        lines = block.split("\\n")
+        xs = [float(line[30:38]) for line in lines if line.startswith("ATOM")]
+        ranges.append((min(xs), max(xs)))
+    assert ranges[1][0] > ranges[0][1], "the second set starts before the first one ends"
+    assert ranges[1][0] - ranges[0][1] == pytest.approx(spacing, abs=1e-3)
