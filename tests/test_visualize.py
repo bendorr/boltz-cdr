@@ -820,7 +820,7 @@ def test_group_list_is_thinned_with_the_ensemble(native_complex):
 
 
 def test_multi_ensemble_view_lays_sets_out_without_overlapping(native_complex):
-    """Each set keeps its own geometry and is translated clear of its neighbour."""
+    """Each set keeps its own geometry and is translated clear of its neighbor."""
     pytest.importorskip("py3Dmol")
     from boltz_cdr.visualize import multi_ensemble_view
 
