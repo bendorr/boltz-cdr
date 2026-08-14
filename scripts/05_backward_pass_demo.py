@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -220,6 +221,55 @@ def main() -> int:
     print(f"  step {args.steps:4d}   E = {final_energy.item():.6e}")
     print(f"energy reduced {trajectory[0]:.4f} -> {final_energy.item():.3e}")
     assert final_energy.item() < trajectory[0], "descent did not reduce the energy"
+
+    # --- what was just minimized, written out with this run's actual constants ----------
+    # Each term is recovered by zeroing the other weight, so these are the same code path
+    # the descent used rather than a re-implementation that could drift from it.
+    att_only = replace(config, repulsion_weight=0.0)
+    rep_only = replace(config, attraction_weight=0.0)
+    n_cdr = selection.meta["n_cdr_atoms"]
+    n_epi = selection.meta["n_epitope_atoms"]
+    n_res = selection.meta["n_cdr_residues"]
+    k = min(config.n_contacts, n_res)
+
+    print(f"""
+the objective, with this run's constants
+
+  E(x)  =  {config.attraction_weight:g} * E_att(x)  +  {config.repulsion_weight:g} * E_rep(x)
+
+  E_att  =  mean over the {k} CDR residues closest to the antigen of
+                max(0, d_r - {config.contact_distance:g} A)^2
+            d_r  = distance from residue r to its nearest antigen atom
+                   ({n_res} CDR residues in total, the closest {k} are scored)
+
+  E_rep  =  ( sum over all {n_cdr} x {n_epi} CDR-antigen atom pairs of
+                max(0, {config.clash_distance:g} A - d_ij)^2 ) / {n_cdr}
+            d_ij = atom-atom distance, normalized by the CDR atom count
+
+max(0, .) is the flat bottom. A residue already inside {config.contact_distance:g} A
+contributes exactly 0 to E_att and receives exactly 0 gradient, and so does an
+atom pair already further apart than {config.clash_distance:g} A. Squaring makes the restoring
+force proportional to the violation and take it smoothly to zero at the
+threshold, so the descent does not oscillate there.""")
+
+    header = f"{'':<18}{f'{config.attraction_weight:g} * E_att':>16}" \
+             f"{f'{config.repulsion_weight:g} * E_rep':>16}{'E':>14}"
+    print("\n" + header)
+    print("-" * len(header))
+    terms = {}
+    for label, coords in (("native", x_native), ("displaced", x_broken),
+                          (f"after {args.steps} steps", x)):
+        e_a = cdr_interface_energy(coords, selection, att_only).item()
+        e_r = cdr_interface_energy(coords, selection, rep_only).item()
+        terms[label] = (e_a, e_r)
+        print(f"{label:<18}{e_a:>16.3e}{e_r:>16.3e}{e_a + e_r:>14.3e}")
+    print(
+        "\nOn the crystal structure E_att is exactly 0: every contact the objective\n"
+        f"asks for is already made. The {terms['native'][1]:.4f} left in E_rep is hydrogen "
+        f"bonds at\n2.7-3.0 A scored as clashes against a {config.clash_distance:g} A cutoff "
+        "— the potential is not\nquite zero at the right answer, which is a fault in it, "
+        "not in the structure."
+    )
 
     # ------------------------------------------------------- 6. independent verification
     banner("6. STRUCTURAL VERIFICATION — scored with the evaluation metrics")
