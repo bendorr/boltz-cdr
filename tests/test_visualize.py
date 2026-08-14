@@ -9,6 +9,7 @@ structure supports it.
 from __future__ import annotations
 
 import copy
+from html.parser import HTMLParser
 
 import numpy as np
 import pytest
@@ -762,6 +763,27 @@ def test_landscape_key_names_both_color_channels(native_complex):
     matplotlib.pyplot.close(fig)
 
 
+class _ButtonHandlers(HTMLParser):
+    """Collect every `onclick` value, decoded by a real HTML parser."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.handlers: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "button":
+            return
+        for key, value in attrs:
+            if key == "onclick" and value:
+                self.handlers.append(value)
+
+
+def _button_handlers(html: str) -> list[str]:
+    parser = _ButtonHandlers()
+    parser.feed(html)
+    return parser.handlers
+
+
 def test_group_toggles_appear_and_address_their_own_members(native_complex):
     """One show/hide pair per distinct group, and the group index is what drives them."""
     pytest.importorskip("py3Dmol")
@@ -771,9 +793,14 @@ def test_group_toggles_appear_and_address_their_own_members(native_complex):
     groups = ["8QF4", "8QF4", "9EZU", "9EZU", "9HUR", "9HUR"]
     html = ensemble_view(members, annotation, groups=groups).write_html()
 
+    handlers = _button_handlers(html)
     for name in ("8QF4", "9EZU", "9HUR"):
-        assert f'.group("{name}", true)' in html
-        assert f'.group("{name}", false)' in html
+        # Parsed out of the attribute, not grepped for in the raw markup. A bare
+        # `json.dumps` here emits double quotes inside a double-quoted attribute, which
+        # truncates the handler to `BC123.group(` — a substring check still passes on
+        # that, and the button silently does nothing.
+        assert any(h.endswith(f'.group("{name}", true)') for h in handlers), handlers
+        assert any(h.endswith(f'.group("{name}", false)') for h in handlers), handlers
     # The array the JS reads must match the members actually drawn, in order.
     assert '"8QF4", "8QF4", "9EZU", "9EZU", "9HUR", "9HUR"' in html
 
@@ -805,8 +832,9 @@ def test_multi_ensemble_view_lays_sets_out_without_overlapping(native_complex):
     # Two context models plus five members.
     assert html.count("addModel") == 2 + 5
     assert view.n_members == 5
+    handlers = _button_handlers(html)
     for name in ("left", "right"):
-        assert f'.group("{name}", true)' in html
+        assert any(h.endswith(f'.group("{name}", true)') for h in handlers), handlers
     # The context models are no longer just model 0, and the JS must be told so.
     assert "var CTX     = [0, 4]" in html
     assert "var MEM     = [1, 2, 3, 5, 6]" in html

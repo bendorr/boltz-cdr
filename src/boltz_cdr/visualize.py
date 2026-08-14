@@ -1048,6 +1048,7 @@ def _view_with_controls(
     """
     import json
     import re
+    from html import escape
 
     base = view._make_html()  # py3Dmol's own accessor for its generated HTML
     match = re.search(r"viewer_(\d+)", base)
@@ -1066,7 +1067,8 @@ def _view_with_controls(
         if legend_values is not None and legend_values[i] is not None:
             suffix = f' <span class="bc-val">{legend_values[i]:.3g}</span>'
         rows.append(
-            f'<label class="bc-row" data-bc-group="{groups[i] if groups else ""}">'
+            f'<label class="bc-row" '
+            f'data-bc-group="{escape(groups[i]) if groups else ""}">'
             f'<input type="checkbox" checked '
             f'onchange="BC{uid}.member({i}, this.checked)">'
             f'<span class="bc-swatch" style="background:{colors[i]}"></span>'
@@ -1076,15 +1078,20 @@ def _view_with_controls(
     group_bar = ""
     if groups:
         names = list(dict.fromkeys(groups))
-        chips = "".join(
-            f'<span class="bc-group"><span class="bc-gname">{name}</span>'
-            f'<button class="bc-btn" onclick="BC{uid}.group({json.dumps(name)}, true)">'
-            f"show</button>"
-            f'<button class="bc-btn" onclick="BC{uid}.group({json.dumps(name)}, false)">'
-            f"hide</button></span>"
-            for name in names
-        )
-        group_bar = f'<div class="bc-opts bc-groups">{chips}</div>'
+        chips = []
+        for name in names:
+            # The JS string argument lives inside a double-quoted HTML attribute, so its
+            # own quotes have to be entities. `json.dumps` alone emits bare double quotes,
+            # which close the attribute early: the handler is then truncated to
+            # `BC123.group(` and the button silently does nothing.
+            arg = escape(json.dumps(name), quote=True)
+            chips.append(
+                f'<span class="bc-group"><span class="bc-gname">{escape(name)}</span>'
+                f'<button class="bc-btn" onclick="BC{uid}.group({arg}, true)">show</button>'
+                f'<button class="bc-btn" onclick="BC{uid}.group({arg}, false)">hide</button>'
+                f"</span>"
+            )
+        group_bar = f'<div class="bc-opts bc-groups">{"".join(chips)}</div>'
 
     def checked(flag: bool) -> str:
         return " checked" if flag else ""
